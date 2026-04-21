@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RADARSCOPE</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    
+    <script src="https://unpkg.com/globe.gl"></script>
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="app-container">
+        <div id="globeViz"></div>
+
+        <div id="left-sidebar" class="panel">
+            <div class="panel-header">
+                COMMAND RAIL <br>
+                <span id="layer-indicator" style="font-size: 10px; opacity: 0.7; color: var(--neon-blue);">CIVILIAN</span>
+            </div>
+            
+            <div class="layer-selection">
+                <button class="menu-btn active" onclick="toggleLayer('civilian', this)">AIR</button>
+                <button class="menu-btn" onclick="toggleLayer('military', this)">MIL</button>
+                <button class="menu-btn" onclick="toggleLayer('satellites', this)">SPACE</button>
+            </div>
+
+            <div id="live-list" class="scroll-list">
+                <div class="list-item loading">Veri bekleniyor...</div>
+            </div>
+        </div>
+
+        <div id="detail-panel" class="panel">
+            <div class="panel-header" style="font-size: 12px;">UNIT DETAILS</div>
+            <div class="settings-group" style="font-size: 11px; line-height: 1.8;">
+                <div id="detail-callsign" style="color: var(--neon-blue); font-weight: bold; font-size: 14px; margin-bottom: 5px;"></div>
+                <div id="detail-coords"></div>
+                <div id="detail-alt"></div>
+                <div id="detail-speed"></div>
+                <button class="action-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('detail-panel').style.display='none'">KAPAT</button>
+            </div>
+        </div>
+
+        <div id="right-sidebar" class="panel">
+            <div class="panel-header">TACTICAL SETTINGS</div>
+            <div class="settings-group">
+                <label class="switch-container">
+                    Şehir Işıkları
+                    <input type="checkbox" checked onclick="toggleLights(this)">
+                    <span class="checkmark"></span>
+                </label>
+                <label class="switch-container">
+                    Atmosfer Parlaklığı
+                    <input type="checkbox" checked onclick="toggleAtmosphere(this)">
+                    <span class="checkmark"></span>
+                </label>
+                <button class="action-btn" onclick="resetCamera()">KAMERAYI SIFIRLA</button>
+            </div>
+        </div>
+
+        <div id="bottom-bar">
+            <span>SYSTEM_TIME: <span id="utc-clock">00:00:00</span></span>
+            <span>CURSOR_LAT: <span id="mouse-lat">0.00</span></span>
+            <span>CURSOR_LNG: <span id="mouse-lng">0.00</span></span>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
