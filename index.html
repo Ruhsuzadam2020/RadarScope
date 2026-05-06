@@ -3,71 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RADARSCOPE</title>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
-    
+    <title>RADARSCOPE — GLOBAL TACTICAL AWARENESS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/globe.gl"></script>
-    
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
 </head>
 <body>
 
-    <div id="app-container">
-        <div id="globeViz"></div>
+<div id="app-container">
+    <!-- GLOBE -->
+    <div id="globeViz"></div>
 
-        <div id="left-sidebar" class="panel">
-            <div class="panel-header">
-                COMMAND RAIL <br>
-                <span id="layer-indicator" style="font-size: 10px; opacity: 0.7; color: var(--neon-blue);">CIVILIAN</span>
-            </div>
-            
-            <div class="layer-selection">
-                <button class="menu-btn active" onclick="toggleLayer('civilian', this)">AIR</button>
-                <button class="menu-btn" onclick="toggleLayer('military', this)">MIL</button>
-                <button class="menu-btn" onclick="toggleLayer('satellites', this)">SPACE</button>
-            </div>
+    <!-- SCAN LINE OVERLAY -->
+    <div id="scanline-overlay"></div>
 
-            <div id="live-list" class="scroll-list">
-                <div class="list-item loading">Veri bekleniyor...</div>
-            </div>
+    <!-- TOP BAR -->
+    <div id="top-bar">
+        <div class="top-logo">
+            <span class="logo-radar">◉</span>
+            RADARSCOPE
+            <span class="logo-sub">GLOBAL TACTICAL AWARENESS SYSTEM v3.1</span>
         </div>
-
-        <div id="detail-panel" class="panel">
-            <div class="panel-header" style="font-size: 12px;">UNIT DETAILS</div>
-            <div class="settings-group" style="font-size: 11px; line-height: 1.8;">
-                <div id="detail-callsign" style="color: var(--neon-blue); font-weight: bold; font-size: 14px; margin-bottom: 5px;"></div>
-                <div id="detail-coords"></div>
-                <div id="detail-alt"></div>
-                <div id="detail-speed"></div>
-                <button class="action-btn" style="width: 100%; margin-top: 10px;" onclick="document.getElementById('detail-panel').style.display='none'">KAPAT</button>
-            </div>
+        <div class="top-status">
+            <span class="status-dot active"></span> LIVE FEED
+            <span id="active-count" style="margin-left:16px;">0 TRACKS</span>
         </div>
-
-        <div id="right-sidebar" class="panel">
-            <div class="panel-header">TACTICAL SETTINGS</div>
-            <div class="settings-group">
-                <label class="switch-container">
-                    Şehir Işıkları
-                    <input type="checkbox" checked onclick="toggleLights(this)">
-                    <span class="checkmark"></span>
-                </label>
-                <label class="switch-container">
-                    Atmosfer Parlaklığı
-                    <input type="checkbox" checked onclick="toggleAtmosphere(this)">
-                    <span class="checkmark"></span>
-                </label>
-                <button class="action-btn" onclick="resetCamera()">KAMERAYI SIFIRLA</button>
-            </div>
-        </div>
-
-        <div id="bottom-bar">
-            <span>SYSTEM_TIME: <span id="utc-clock">00:00:00</span></span>
-            <span>CURSOR_LAT: <span id="mouse-lat">0.00</span></span>
-            <span>CURSOR_LNG: <span id="mouse-lng">0.00</span></span>
+        <div class="top-clock">
+            <div>UTC <span id="utc-clock">00:00:00</span></div>
+            <div id="cursor-info">LAT: <span id="mouse-lat">0.00</span> | LNG: <span id="mouse-lng">0.00</span></div>
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <!-- LEFT SIDEBAR -->
+    <div id="left-sidebar" class="panel">
+        <div class="panel-header">
+            <span class="ph-icon">▣</span>
+            COMMAND RAIL
+            <span id="layer-indicator" class="layer-badge">CIVILIAN</span>
+        </div>
+
+        <!-- LAYER BUTTONS -->
+        <div class="layer-selection">
+            <button class="layer-btn active" data-layer="civilian" onclick="switchLayer('civilian', this)">
+                <span class="lb-icon">✈</span> AIR
+            </button>
+            <button class="layer-btn" data-layer="military" onclick="switchLayer('military', this)">
+                <span class="lb-icon">🎖</span> MIL
+            </button>
+            <button class="layer-btn" data-layer="satellites" onclick="switchLayer('satellites', this)">
+                <span class="lb-icon">🛰</span> SPACE
+            </button>
+        </div>
+
+        <!-- OVERLAY TOGGLES -->
+        <div class="overlay-section">
+            <div class="overlay-title">OVERLAYS</div>
+            <div class="overlay-grid">
+                <button class="ov-btn" id="ovAirBase" onclick="toggleOverlay('airBase', this)">
+                    <span>✈</span> HAVUZ
+                </button>
+                <button class="ov-btn" id="ovNaval" onclick="toggleOverlay('naval', this)">
+                    <span>⚓</span> DENİZ
+                </button>
+                <button class="ov-btn" id="ovRailway" onclick="toggleOverlay('railway', this)">
+                    <span>🛤</span> DEMİRYOL
+                </button>
+                <button class="ov-btn" id="ovWeather" onclick="toggleOverlay('weather', this)">
+    <span>⛈</span> HAVA
+</button>
+            </div>
+
+            <!-- Country Filter -->
+            <div class="country-select-wrap" id="countrySelectWrap" style="display:none;">
+                <div class="cs-label">ÜLKE SEÇ</div>
+                <select id="countrySelect" onchange="onCountryChange(this.value)">
+                    <option value="all">— TÜM ÜLKELER —</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- LIVE TRACKS LIST -->
+        <div class="list-header">
+            <span>CANLI İZLER</span>
+            <span id="list-count" style="color:var(--accent); font-size:10px;">0</span>
+        </div>
+        <div id="live-list" class="scroll-list">
+            <div class="list-item loading">
+                <div class="loading-pulse"></div>
+                Veri bekleniyor...
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR - TACTICAL -->
+    <div id="right-sidebar" class="panel">
+        <div class="panel-header"><span class="ph-icon">⚙</span> TAKTİK AYARLAR</div>
+
+        <div class="settings-group">
+            <label class="toggle-row">
+                <span>Şehir Işıkları</span>
+                <div class="toggle-wrap">
+                    <input type="checkbox" checked id="tog-lights" onchange="toggleLights(this)">
+                    <span class="toggle-slider"></span>
+                </div>
+            </label>
+            <label class="toggle-row">
+                <span>Atmosfer</span>
+                <div class="toggle-wrap">
+                    <input type="checkbox" checked id="tog-atm" onchange="toggleAtmosphere(this)">
+                    <span class="toggle-slider"></span>
+                </div>
+            </label>
+            <label class="toggle-row">
+                <span>Arazi Kabartma</span>
+                <div class="toggle-wrap">
+                    <input type="checkbox" checked id="tog-bump" onchange="toggleBump(this)">
+                    <span class="toggle-slider"></span>
+                </div>
+            </label>
+            <button class="action-btn full-btn" onclick="resetCamera()">↺ KAMERA SIFIRLA</button>
+        </div>
+
+        <div class="panel-header" style="margin-top:12px;"><span class="ph-icon">📡</span> FİLTRE</div>
+        <div class="settings-group">
+            <div class="filter-row">
+                <label>Min İrtifa</label>
+                <input type="range" min="0" max="500" value="0" id="filter-alt" oninput="applyFilter()">
+                <span id="filter-alt-val">0 km</span>
+            </div>
+            <div class="filter-row">
+                <label>Min Hız</label>
+                <input type="range" min="0" max="3000" value="0" step="100" id="filter-spd" oninput="applyFilter()">
+                <span id="filter-spd-val">0 km/h</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- SIMULATION PANEL -->
+    <div id="sim-panel" class="panel" style="display:none;">
+        <div class="panel-header">
+            <span class="ph-icon">🎯</span> SAVAŞ SİMÜLASYONU
+            <button class="close-x" onclick="closeSim()">✕</button>
+        </div>
+        <div class="settings-group sim-content">
+            <div class="sim-row">
+                <label>UÇAK TİPİ</label>
+                <select id="sim-aircraft"></select>
+            </div>
+            <div class="sim-aircraft-info" id="sim-aircraft-info"></div>
+            <div class="sim-row">
+                <label>ADET</label>
+                <input type="number" id="sim-count" min="1" max="50" value="10">
+            </div>
+            <div class="sim-row">
+                <label>KALKIŞ ÜSSÜ</label>
+                <select id="sim-origin"></select>
+            </div>
+            <div class="sim-row">
+                <label>HEDEF KOORDİNAT</label>
+                <div style="display:flex; gap:6px;">
+                    <input type="number" id="sim-lat" placeholder="LAT" step="0.1">
+                    <input type="number" id="sim-lng" placeholder="LNG" step="0.1">
+                </div>
+                <button class="mini-btn" onclick="pickTargetMode()">🎯 HARİTADAN SEÇ</button>
+            </div>
+            <button class="action-btn full-btn red-btn" onclick="runSimulation()">⚡ SİMÜLASYONU BAŞLAT</button>
+
+            <div id="sim-results" class="sim-results" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- DETAIL PANEL -->
+    <div id="detail-panel" class="panel" style="display:none;">
+        <div class="panel-header" style="font-size:11px;">
+            <span class="ph-icon">📋</span> UNIT DETAILS
+            <button class="close-x" onclick="closeDetail()">✕</button>
+        </div>
+        <div class="settings-group detail-content">
+            <div id="detail-callsign" class="detail-callsign"></div>
+            <div class="detail-grid" id="detail-grid"></div>
+        </div>
+    </div>
+
+    <!-- BOTTOM BAR -->
+    <div id="bottom-bar">
+        <span class="bb-item">◉ <span id="bb-layer">CIVILIAN AIR</span></span>
+        <span class="bb-item">UTC <span id="utc-clock2">00:00:00</span></span>
+        <span class="bb-item">TRACKS: <span id="bb-count">0</span></span>
+        <span class="bb-item">
+            <button class="sim-launch-btn" onclick="openSim()">🎯 SİMÜLASYON</button>
+        </span>
+        <span class="bb-item">REFRESH: <span id="bb-next">15s</span></span>
+    </div>
+
+    <!-- PICKING MODE INDICATOR -->
+    <div id="pick-mode-indicator" style="display:none;">
+        <div class="pick-mode-inner">🎯 HARİTAYA TIKLA — HEDEF SEÇMEK İÇİN</div>
+    </div>
+</div>
+
+<script src="data_military_bases.js"></script>
+<script src="data_aircraft_specs.js"></script>
+<script src="script.js"></script>
 </body>
 </html>

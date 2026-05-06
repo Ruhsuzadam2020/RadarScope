@@ -1,113 +1,63 @@
-from flask import Flask, jsonify, request
-from flask_cors import CORS
+import os
+import time
 import requests
-from datetime import datetime, timedelta
-from sgp4.api import Satrec, jday
-import math
+from flask import Flask, send_from_directory
+from flask_socketio import SocketIO
+from dotenv import load_dotenv
+import threading
 
-app = Flask(__name__)
-CORS(app)
+# .env dosyasını yüklüyoruz
+load_dotenv()
 
-OPENSKY_URL = "https://opensky-network.org/api/states/all"
-CELESTRAK_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+app = Flask(__name__, static_folder='.')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-radar-key')
 
-mil_prefixes = [
-    'TUAF', 'TURAF', 'HVK', 'ASENA', 'AZAF', 'RFF', 'RSY', 'CHD', 'RA-',
-    'IRAF', 'IRG', 'IRGC', 'FARS', 'EP-', 'IAF', 'ISR', 'LY-',
-    'HRV', 'HAF', 'RSR', 'SVN', 'BUL', 'ROM', 'RCH', 'REACH', 'SAM',
-    'FORGE', 'DUKE', 'VADER', 'JAKE', 'YANKY', 'AE', 'AF1', 'PAT',
-    'RRR', 'ASCOT', 'SHED', 'UPLFT', 'HKY', 'NATO', 'NAF', 'NCHO'
-]
-@app.route('/get-data')
-def get_data():
-    data_type = request.args.get('type', 'civilian')
-    headers = {'User-Agent': 'Mozilla/5.0'}
+# WebSocket'i başlatıyoruz
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-    try:
-        if data_type in ['civilian', 'military']:
-            response = requests.get(OPENSKY_URL, headers=headers, timeout=15)
-            if response.status_code != 200:
-                print(f"OpenSky Hatası: {response.status_code}")
-                return jsonify([])
 
+@app.route('/')
+def serve_index():
+    return send_from_directory('.', 'index.html')
+
+
+@app.route('/<path:path>')
+def serve_static(path):
+    return send_from_directory('.', path)
+
+
+def fetch_radar_data():
+    """Arka planda sürekli çalışıp OpenSky verisini çeken ve Frontend'e iten fonksiyon (Kategori 1 & 2)"""
+    while True:
+        try:
+            url = 'https://opensky-network.org/api/states/all?lamin=-90&lomin=-180&lamax=90&lomax=180'
+            response = requests.get(url, timeout=10)
             data = response.json()
-            states = data.get("states", [])
-            results = []
 
-            if states:
-                for s in states:
-                    if s[5] is None or s[6] is None:
-                        continue
+            # Veriyi WebSocket üzerinden tarayıcıya "live_flight_data" kanalıyla gönderiyoruz
+            socketio.emit('live_flight_data', data)
+            print("Veri başarıyla Frontend'e itildi (WebSocket).")
 
-                    callsign = (s[1] or "").strip().upper()
-                    is_mil = any(p in callsign for p in mil_prefixes)
+        except Exception as e:
+            print(f"API Hatası: {e}")
+            socketio.emit('live_flight_data', {"states": [], "error": str(e)})
 
-                    if (data_type == 'military' and is_mil) or (data_type == 'civilian' and not is_mil):
-                        results.append({
-                            "lat": s[6],
-                            "lng": s[5],
-                            "alt": (s[7] or 0) / 1000,
-                            "callsign": callsign or "UNK",
-                            "velocity": (s[9] or 0)
-                        })
+        # Her 15 saniyede bir günceller
+        time.sleep(15)
 
-                    if len(results) >= 400: break  # Performans için üst sınır
 
-            print(f"SUCCESS: {data_type.upper()} katmanı için {len(results)} birim gönderildi.")
-            return jsonify(results)
-
-        elif data_type == 'satellites':
-            response = requests.get(CELESTRAK_URL, timeout=15)
-            if response.status_code != 200:
-                print("Celestrak Bağlantı Hatası")
-                return jsonify([])
-
-            lines = response.text.splitlines()
-            combined_data = []
-            now = datetime.utcnow()
-
-            for i in range(0, min(len(lines), 90), 3):
-                try:
-                    name = lines[i].strip()
-                    s_line1 = lines[i + 1]
-                    s_line2 = lines[i + 2]
-
-                    satellite = Satrec.twoline2rv(s_line1, s_line2)
-                    orbit_path = []
-
-                    for m in range(0, 105, 5):
-                        f_time = now + timedelta(minutes=m)
-                        jd, fr = jday(f_time.year, f_time.month, f_time.day, f_time.hour, f_time.minute, f_time.second)
-                        e, r, v = satellite.sgp4(jd, fr)
-
-                        if e == 0:
-                            x, y, z = r[0], r[1], r[2]
-                            dist = math.sqrt(x ** 2 + y ** 2 + z ** 2)
-                            lat = math.asin(z / dist) * (180 / math.pi)
-                            lng = (math.atan2(y, x) * (180 / math.pi) - (f_time.hour + f_time.minute / 60) * 15) % 360
-                            if lng > 180: lng -= 360
-                            orbit_path.append([lat, lng, 0.12])
-
-                    if orbit_path:
-                        combined_data.append({
-                            "callsign": name,
-                            "path": [orbit_path],
-                            "lat": orbit_path[0][0],
-                            "lng": orbit_path[0][1],
-                            "alt": 300
-                        })
-                except Exception as ex:
-                    continue
-
-            print(f"SUCCESS: SPACE katmanı için {len(combined_data)} uydu hazır.")
-            return jsonify(combined_data)
-
-        return jsonify([])
-
-    except Exception as e:
-        print(f"KRİTİK SUNUCU HATASI: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+@socketio.on('connect')
+def handle_connect():
+    print("Yeni bir komuta merkezi (istemci) bağlandı!")
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.getenv('PORT', 5000))
+    print(f"RADARSCOPE C4ISR Sunucusu Başlatılıyor... Port: {port}")
+
+    # Arka plan veri çekme işlemini başlat
+    thread = threading.Thread(target=fetch_radar_data)
+    thread.daemon = True
+    thread.start()
+
+    socketio.run(app, debug=True, port=port, allow_unsafe_werkzeug=True)
