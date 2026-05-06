@@ -18,7 +18,9 @@ const STATE = {
 };
 
 // ── WEBSOCKET ──────────────────────────────────────────────
-const socket = io();
+// Eski hali: const socket = io();
+// Yeni hali:
+const socket = io("https://radarscope.onrender.com");
 
 socket.on('live_flight_data', (raw) => {
     if (STATE.layer === 'civilian') {

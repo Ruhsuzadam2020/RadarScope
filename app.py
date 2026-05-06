@@ -12,8 +12,11 @@ load_dotenv()
 app = Flask(__name__, static_folder='.')
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default-radar-key')
 
-# WebSocket'i başlatıyoruz
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# app.py içinde:
+socketio = SocketIO(app, cors_allowed_origins=[
+    "http://localhost:5000",
+    "https://ruhsuzadam2020.github.io"
+], async_mode='eventlet')
 
 
 @app.route('/')
