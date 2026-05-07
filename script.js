@@ -25,58 +25,40 @@ const STATE = {
     conflictZones: [],
 };
 
-// ── WEBSOCKET ──────────────────────────────────────────────
-const BACKEND_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5000'
-    : 'https://radarscope.onrender.com';
+// ── VERİ ÇEKME — Sadece HTTP Polling (Render WSS desteklemiyor) ──────
+// Socket.IO / WebSocket Render'da çalışmıyor — doğrudan REST API polling kullanıyoruz
 
-const socket = io(BACKEND_URL, {
-    transports: ['polling', 'websocket'], // polling önce — Render'da daha güvenilir
-    reconnectionAttempts: 10,
-    reconnectionDelay: 3000,
-    timeout: 20000,
-});
-
-let wsConnected = false;
 let httpPollInterval = null;
 
-socket.on('connect', () => {
-    wsConnected = true;
-    console.log('[Socket.IO] ✓ Bağlandı:', socket.io.engine.transport.name);
-    if (httpPollInterval) { clearInterval(httpPollInterval); httpPollInterval = null; }
-});
-
-socket.on('live_flight_data', (raw) => {
-    if (STATE.layer === 'civilian') processWebSocketData(raw);
-});
-
-socket.on('connect_error', (err) => {
-    wsConnected = false;
-    console.warn('[Socket.IO] Bağlanamadı:', err.message, '— HTTP polling devreye giriyor');
-    startHttpPolling();
-});
-
-socket.on('disconnect', () => {
-    wsConnected = false;
-    startHttpPolling();
-});
-
-// HTTP Polling — Socket.IO çalışmazsa doğrudan /api/opensky/states çeker
 function startHttpPolling() {
     if (httpPollInterval) return;
-    httpPollInterval = setInterval(async () => {
-        if (wsConnected || STATE.layer !== 'civilian') return;
-        try {
-            const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) });
-            if (res.ok) processWebSocketData(await res.json());
-        } catch (e) { console.warn('[HTTP Poll]', e.message); }
-    }, 15000);
-    // İlk isteği hemen gönder
-    if (STATE.layer === 'civilian') {
-        fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) })
-            .then(r => r.json()).then(processWebSocketData).catch(() => {});
+    console.log('[HTTP Poll] Başlatıldı');
+    // Hemen ilk isteği yap
+    pollOpenSky();
+    // 15 saniyede bir tekrarla
+    httpPollInterval = setInterval(pollOpenSky, 15000);
+}
+
+function stopHttpPolling() {
+    if (httpPollInterval) { clearInterval(httpPollInterval); httpPollInterval = null; }
+}
+
+async function pollOpenSky() {
+    if (STATE.layer !== 'civilian') return;
+    try {
+        const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) });
+        if (res.ok) {
+            const data = await res.json();
+            processWebSocketData(data);
+        }
+    } catch (e) {
+        console.warn('[HTTP Poll] Hata:', e.message);
     }
 }
+
+// Boş socket mock — kod genelinde socket.on() çağrıları için
+const socket = { on: () => {} };
+
 
 socket.on('connect', () => {
     console.log('[WebSocket] Bağlandı ✓');
@@ -141,6 +123,7 @@ function switchLayer(layer, btn) {
     if (STATE.layer === layer) {
         STATE.layer = null;
         STATE.liveFlights = [];
+        stopHttpPolling();
         document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
         document.getElementById('layer-indicator').innerText = '—';
         document.getElementById('bb-layer').innerText = 'NO LAYER';
@@ -152,6 +135,14 @@ function switchLayer(layer, btn) {
     if (btn) btn.classList.add('active');
     document.getElementById('layer-indicator').innerText = layer.toUpperCase();
     document.getElementById('bb-layer').innerText = layer.toUpperCase() + ' LAYER';
+
+    // Civilian seçilince HTTP polling başlat, diğer layer'larda durdur
+    if (layer === 'civilian') {
+        startHttpPolling();
+    } else {
+        stopHttpPolling();
+    }
+
     updateData();
 }
 

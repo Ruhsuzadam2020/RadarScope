@@ -2,11 +2,9 @@
 import os
 import time
 import requests
-from flask import Flask, send_from_directory, jsonify, request
+from flask import Flask, send_from_directory, jsonify, request, Response
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
-import threading
-import json
 from datetime import datetime
 
 load_dotenv()
@@ -41,8 +39,6 @@ def serve_index():
 
 @app.route('/favicon.ico')
 def favicon():
-    # favicon yoksa 204 No Content döndür — tarayıcı 404 hatası vermez
-    from flask import Response
     return Response(status=204)
 
 
@@ -186,79 +182,7 @@ def cloudflare_proxy(cf_path):
         }), 200  # 200 döndür ki ön tarafta hata alınmasın
 
 
-# ── Sahte veri üretme (SADECE gerçek veri yoksa) ────────────
-def generate_mock_data(amount=50):
-    """Sadece acil durum mock verisi - normalde kullanılmaz"""
-    import random
-    routes = [
-        (41.0, 29.0), (40.8, 29.5), (41.2, 28.8),
-        (51.5, -0.1), (48.9, 2.3), (40.7, -74.0),
-        (55.8, 37.6), (35.7, 139.7), (22.3, 114.2),
-        (-33.9, 151.2), (28.6, 77.2), (1.4, 103.8),
-    ]
-
-    callsigns = ['THY1', 'DLH432', 'UAE205', 'AFR83', 'BAW7', 'SAS568', 'KLM67']
-
-    return [{
-        'icao24': f'abc123{i}',
-        'callsign': f"{callsigns[i % len(callsigns)]}{random.randint(10, 999)}",
-        'origin_country': ['Turkey', 'USA', 'UK', 'France', 'Germany'][i % 5],
-        'time_position': int(time.time()),
-        'last_contact': int(time.time()) - random.randint(0, 30),
-        'longitude': routes[i % len(routes)][1] + (random.random() - 0.5) * 5,
-        'latitude': routes[i % len(routes)][0] + (random.random() - 0.5) * 5,
-        'baro_altitude': random.uniform(3000, 12000),
-        'velocity': random.uniform(200, 900),
-        'true_track': random.uniform(0, 360),
-        'on_ground': False,
-        '_mock': True
-    } for i in range(amount)]
-
-
-# ── Socket.IO canlı veri yayını ─────────────────────────────
-def fetch_radar_data():
-    last_opensky_status = "initial"
-
-    while True:
-        try:
-            # Backend üzerinden OpenSky proxy
-            resp = requests.get('http://localhost:5000/api/opensky/states', timeout=15)
-            data = resp.json()
-
-            if data.get('states') and len(data.get('states', [])) > 0:
-                # Gerçek veri var
-                data['_real_data'] = True
-                data['_timestamp'] = datetime.utcnow().isoformat()
-                socketio.emit('live_flight_data', data)
-                print(f"[OpenSky] ✓ Gerçek veri — {len(data.get('states', []))} uçuş")
-                last_opensky_status = "live"
-            else:
-                # Hiç veri yok veya hata durumu
-                error_msg = data.get('error', 'No states')
-
-                if last_opensky_status != "empty":
-                    # Sadece bir kere "veri yok" mesajı gönder
-                    socketio.emit('live_flight_data', {
-                        'states': [],
-                        'error': error_msg,
-                        'real_data': False,
-                        'timestamp': datetime.utcnow().isoformat()
-                    })
-                    print(f"[OpenSky] ⚠ Veri yok: {error_msg}")
-                    last_opensky_status = "empty"
-
-        except Exception as e:
-            print(f"[OpenSky] Bağlantı hatası: {e}")
-            socketio.emit('live_flight_data', {
-                'states': [],
-                'error': str(e),
-                'real_data': False,
-                'timestamp': datetime.utcnow().isoformat()
-            })
-
-        time.sleep(12)
-
-
+# ── Socket.IO bağlantı logu (opsiyonel) ─────────────────────
 @socketio.on('connect')
 def handle_connect():
     print("🌟 İstemci bağlandı!")
@@ -273,11 +197,8 @@ if __name__ == '__main__':
     ║  Port: {port}                           ║
     ║  OpenSky: {'KONUMLU' if OPENSKY_USER else 'ANONİM'}    ║
     ║  Cloudflare: {'HAZIR' if CF_API_KEY else 'BEKLİYOR'} ║
+    ║  Mod: HTTP REST Polling               ║
     ╚════════════════════════════════════════╝
     """)
-
-    thread = threading.Thread(target=fetch_radar_data)
-    thread.daemon = True
-    thread.start()
 
     socketio.run(app, debug=False, port=port, allow_unsafe_werkzeug=True)
