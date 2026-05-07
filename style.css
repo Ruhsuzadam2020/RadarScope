@@ -146,6 +146,7 @@ body {
 .ov-btn.active-cyber { background: rgba(255,152,0,0.12); border-color: #ff9800; color: #ff9800; box-shadow: 0 0 8px rgba(255,152,0,0.3); }
 .ov-btn.active-conflict { background: rgba(255,60,95,0.12); border-color: var(--accent2); color: var(--accent2); box-shadow: 0 0 8px rgba(255,60,95,0.3); }
 .ov-btn.active-radar { background: rgba(0,242,255,0.12); border-color: var(--accent); color: var(--accent); box-shadow: var(--glow); }
+.ov-btn.active-osint { background: rgba(0,242,255,0.12); border-color: var(--accent); color: var(--accent); box-shadow: var(--glow); }
 
 /* Country Select */
 .country-select-wrap { margin-top: 6px; }

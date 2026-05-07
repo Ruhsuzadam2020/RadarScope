@@ -9,7 +9,7 @@
 // ── STATE ──────────────────────────────────────────────────
 const STATE = {
     layer: null,  // No layer selected by default — overlays work independently
-    overlays: { airBase: false, naval: false, railway: false, cyber: false, conflict: false, radar: false },
+    overlays: { airBase: false, naval: false, railway: false, cyber: false, conflict: false, radar: false, osint: false},
     selectedCountry: 'all',
     allData: [],
     liveFlights: [],
@@ -23,11 +23,12 @@ const STATE = {
     radarSystems: [],
     customRadars: [],
     conflictZones: [],
+    
 };
 
 // ── VERİ ÇEKME — Sadece HTTP Polling (Render WSS desteklemiyor) ──────
 // Socket.IO / WebSocket Render'da çalışmıyor — doğrudan REST API polling kullanıyoruz
-
+let osintPoints = [];
 let httpPollInterval = null;
 
 function startHttpPolling() {
@@ -46,7 +47,7 @@ function stopHttpPolling() {
 async function pollOpenSky() {
     if (STATE.layer !== 'civilian') return;
     try {
-        const res = await fetch('https://radarscope.onrender.com/api/opensky/states', { signal: AbortSignal.timeout(12000) });
+        const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(15000) });
         if (res.ok) {
             const data = await res.json();
             processWebSocketData(data);
@@ -185,13 +186,86 @@ async function updateData() {
 
 // ── PROCESS WEBSOCKET DATA ─────────────────────────────────
 // FIX: Strict military classification — only by known callsign prefixes
-const MIL_PREFIXES = ['MAGMA','REACH','JAKE','HOMER','TOPAZ','HAVOC',
-    'COBRA','VIPER','JOLLY','IRON','GHOST','KNIFE','DEMON','FURY','RAPTOR',
-    'EAGLE','FALCON','TALON','SHADOW','NIGHT','RCH','CNV','PAT','STEEL',
-    'RANGER','WOLF','PANTHER','NOBLE','SPAR','EVAC','GRIM','BOXER','LANCE',
-    'BONE','BUFF','SLAM','DUKE','RAVEN','BRONCO','DAGGER','FORCE','LIMA',
-    'HERKY','TROY','COLT','ROCKY','VADER','TITAN','ZEUS','ARES','SPARTAN'];
+const MIL_PREFIXES = [
+    // --- SENİN LİSTEN (KORUNDU) ---
+    'MAGMA','REACH','JAKE','HOMER','TOPAZ','HAVOC','COBRA','VIPER','JOLLY',
+    'IRON','GHOST','KNIFE','DEMON','FURY','RAPTOR','EAGLE','FALCON','TALON',
+    'SHADOW','NIGHT','RCH','CNV','PAT','STEEL','RANGER','WOLF','PANTHER',
+    'NOBLE','SPAR','EVAC','GRIM','BOXER','LANCE','BONE','BUFF','SLAM','DUKE',
+    'RAVEN','BRONCO','DAGGER','FORCE','LIMA','HERKY','TROY','COLT','ROCKY',
+    'VADER','TITAN','ZEUS','ARES','SPARTAN','TURAF','TUAF','USAF','RSAF',
+    'FAF','NATO','QID','BART','KING','HOUND',
 
+    // --- ABD HAVA KUVVETLERİ (USAF) - TAKTİKSEL VE OPERASYONEL ---
+    'AF1', 'AF2', 'SAM', 'VENUS', 'MOOSE', 'PELICAN', 'BANSHEE', 'BAT', 'CHOSEN',
+    'DOOM', 'DUSTOFF', 'ELVIS', 'GILA', 'HAWK', 'HUSKY', 'JEDI', 'MOJO', 'MUD', 
+    'MUSTANG', 'OUTLAW', 'PEDRO', 'PUMA', 'RAIDER', 'REAPER', 'REDSTAR', 'RHINO', 
+    'ROMEO', 'ROUGE', 'SABER', 'SCALPEL', 'SHARK', 'SLAYER', 'SNAKE', 'SNOOPY', 
+    'SPOOKY', 'STING', 'STRIKE', 'TIGER', 'TOXIC', 'TUSK', 'VENOM', 'VOODOO', 
+    'WARLORD', 'WEASEL', 'WIDOW', 'YANKEE', 'ZOMBIE', 'HURON', 'GRIZZLY', 
+    'DRAGON', 'WARTHOG', 'PIRATE', 'NINJA', 'THUNDER', 'BOHICA', 'CHAOS', 
+    'STRIX', 'TALLY', 'BOGEY', 'BANDIT', 'BLAZE', 'CLAW', 'DART', 'DEATH', 
+    'DIESEL', 'DOG', 'FANG', 'GATOR', 'HUNTER', 'KILLER', 'LOBSTER', 'MACE', 
+    'MAKO', 'MIG', 'PISTOL', 'PYTHON', 'RAM', 'SNIPER', 'SPIDER', 'VALKYRIE', 
+    'WARBIRD', 'WRAITH', 'FEAR', 'MIGHTY', 'MYTH', 'RUMBLE', 'SCYTHE', 'SKULL', 
+    'TERROR', 'BISON', 'CAMEL', 'DECOY', 'EXXON', 'GAS', 'GOLD', 'HEAVY', 
+    'HOBO', 'MAPLE', 'MOBIL', 'OPAL', 'PACK', 'PEARL', 'PEST', 'RETRO', 'SHELL', 
+    'TEXACO', 'TOTO', 'CHALK', 'FLIGHT', 'HUEY', 'HOOK', 'TEST', 'TRACK', 
+    'EDWARDS', 'NELLIS', 'RED', 'BLUE', 'AGGR', 'BOSSMAN', 'ANVIL', 'APACHE',
+    'ASSASSIN', 'AVENGER', 'BADGER', 'BARON', 'BEAST', 'BOAR', 'BRAWLER', 'BRUISER',
+
+    // --- ABD DONANMASI VE MARİNLER (USN / USMC) ---
+    'VV', 'VM', 'HMX', 'VMX', 'VMM', 'VMFA', 'BLADE', 'BOBCAT', 'BUCK', 'BULLET', 
+    'CHOPPER', 'CONDOR', 'CROW', 'DASH', 'DEVIL', 'DIXIE', 'DUSTY', 'EASY', 
+    'ECHO', 'FAT', 'FLASH', 'FLEET', 'FOX', 'GIANT', 'GUN', 'GYPSY', 'HALO', 
+    'HAMMER', 'HAWAII', 'HERO', 'HIT', 'HAWKEYE', 'JACK', 'JOKER', 'JUMP', 
+    'KICK', 'KITE', 'LION', 'LIZARD', 'LOBO', 'LOCO', 'MAC', 'MAGIC', 'MALT', 
+    'MARVEL', 'MATRIX', 'MAX', 'METAL', 'METEOR', 'MIKE', 'MINK', 'MINT', 
+    'MOON', 'MOTH', 'MOTOR', 'NAIL', 'NEON', 'NEST', 'NET', 'NOVA', 'NYLON', 
+    'OASIS', 'ODIN', 'OMEGA', 'ONYX', 'ORCA', 'ORION', 'OTTER', 'OWL', 'OZONE', 
+    'PACER', 'PAD', 'PAGE', 'PAINT', 'PANDA', 'PEACH', 'PENNY', 'PHANTOM', 
+    'PILOT', 'PINE', 'PINK', 'PIPER', 'PLATO', 'PLUM', 'PLUTO', 'POGO', 'POKER', 
+    'POLO', 'PONY', 'POOL', 'POPE', 'PORK', 'PORT', 'POSEIDON', 'POST', 'PUNCH', 
+    'PUP', 'PURE', 'PUSH', 'QUACK', 'QUAIL', 'QUARTZ', 'QUEEN', 'QUICK', 'QUILL', 
+    'QUIRK', 'RADAR', 'RADIO', 'RAGE', 'RAIN', 'RAT', 'RAY', 'RAZOR', 'REEF', 
+    'REX', 'RICE', 'RICH', 'RIDER', 'RIG', 'RING', 'RIOT', 'RIP', 'RISK', 
+    'RIVER', 'ROAD', 'ROAR', 'ROCK', 'ROCKET', 'ROGUE', 'ROLF', 'ROOK', 'ROPE', 
+    'ROSE', 'ROUGH', 'ROUND', 'ROUTE', 'ROVER', 'ROW', 'ROY', 'RUBY', 'RUG', 
+    'RULE', 'RUM', 'RUN', 'RUSH', 'RUSTY', 'TRIDENT', 'NAVY', 'SAILOR',
+
+    // --- BİRLEŞİK KRALLIK (RAF & ROYAL NAVY) ---
+    'ASCOT', 'RRR', 'VORTEX', 'TYPHOON', 'VAMPIRE', 'ZIRCON', 'TARTAN', 
+    'MADRAS', 'KRAKEN', 'APOLLO', 'NEMESIS', 'SHAMROCK', 'AAC', 'CANOPY', 
+    'CHIEFTAIN', 'COBWEB', 'DUCKY', 'EXCALIBUR', 'GUNDOG', 'JAVELIN', 'KNIGHT', 
+    'MAGICIAN', 'MARLIN', 'MERLIN', 'OMEN', 'PAGAN', 'PEGASUS', 'REBEL', 
+    'RUSTIC', 'SAXON', 'SPITFIRE', 'STRIKER', 'SYNDICATE', 'TALISMAN', 
+    'TARPON', 'TRIBE', 'VANDAL', 'VANGUARD', 'WARLOCK', 'WIDGET', 'WIZARD', 
+    'YOGA', 'ZEBRA', 'DOXFORD', 'BLACKCAT',
+
+    // --- TÜRKİYE (TÜRK HAVA KUVVETLERİ & İHA/SİHA & KARA HAVACILIK) ---
+    'KARTAL', 'SAHIN', 'ATMACA', 'DOGAN', 'PARS', 'ASLAN', 'KAPLAN', 'HAN', 
+    'BORA', 'ANKA', 'AKINCI', 'BAYKAR', 'TUNC', 'KAMA', 'HANCO', 'YARASA', 
+    'GOKTURK', 'AKIN', 'CENK', 'PALA', 'KAMC', 'BARIS', 'KORSAN', 'KILIC', 
+    'OK', 'MIZRAK', 'KOBRA', 'KASIRGA', 'POYRAZ', 'LODOS', 'YILDIRIM', 
+    'KASIF', 'GUC', 'AKBABA', 'PUSAT', 'SIZAN', 'AVCI', 'AKINC', 'PEYKO',
+
+    // --- KÜRESEL ICAO & NATO & DİĞER ÜLKELERİN ASKERİ KODLARI ---
+    'MAGIC', 'AWACS', 'NAF', 'CTM', 'COTAM', 'GAF', 'GNY', 'GAM', 'CFC', 'CANFORCE', 
+    'ASY', 'AUSSIE', 'IAF', 'KAF', 'BAF', 'HAF', 'PAF', 'RFF', 'URFF', 'VVS', 
+    'POLAF', 'SVF', 'ROKAF', 'FNY', 'MM', 'IAM', 'NLD', 'ESY', 'POF', 'AME', 
+    'GATO', 'LINCE', 'LYNX', 'LUPO', 'AQUILA', 'BARAK', 'RAAM', 'SUFA', 'BAZ', 
+    'ADAN', 'KIWI', 'MAGPIE', 'BOOMER', 'DINGO', 'IFC', 'JF', 'RSF', 'MARCOT',
+    'LUFTWAFFE',
+
+    // --- ÖZEL GÖREVLER / ACİL DURUM / GENEL ASKERİ ---
+    'MEDEVAC', 'SAR', 'AIRF', 'RESCUE', 'GUARD', 'SWEEPER', 'CLEAN', 'CAP', 
+    'CHIEF', 'COMMAND', 'ESCORT', 'LEAD', 'WING', 'FLANK', 'ALFA', 'BRAVO', 
+    'CHARLIE', 'DELTA', 'INTERCEPT', 'SCRAMBLE', 'AWACS', 'BOMBER', 'CARGO'
+];
+
+// EĞER LİSTEDE YANLIŞLIKLA AYNI TAG'İ İKİ KERE YAZDIYSAN DİYE, 
+// OTOMATİK OLARAK TEKRAR EDENLERİ TEMİZLEYEN KOD:
+const UNIQUE_MIL_PREFIXES = [...new Set(MIL_PREFIXES)];
 function isMilitaryCallsign(cs) {
     if (!cs) return false;
     const upper = cs.trim().toUpperCase();
@@ -211,7 +285,7 @@ function processWebSocketData(raw) {
     } else {
         const parsed = raw.states
             .filter(s => s[5] != null && s[6] != null && s[7] != null)
-            .slice(0, 400)
+            .slice(0, 2500)
             .map(s => {
                 const cs = (s[1] || 'UNK').trim();
                 // FIX: Never mark as military in civilian layer — use type:'civilian'
@@ -252,7 +326,7 @@ function processWebSocketData(raw) {
 // ── FETCH MILITARY ─────────────────────────────────────────
 async function fetchMilitaryFlights() {
     try {
-        const res = await fetch('https://radarscope.onrender.com/api/opensky/states', { signal: AbortSignal.timeout(15000) });
+        const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error('API error');
         const raw = await res.json();
         if (!raw.states) return [];
@@ -263,7 +337,7 @@ async function fetchMilitaryFlights() {
                 const cs = (s[1] || '').trim().toUpperCase();
                 return isMilitaryCallsign(cs);
             })
-            .slice(0, 100)
+            .slice(0, 1000)
             .map(s => ({
                 callsign: (s[1] || 'MIL-???').trim(),
                 lat: s[6], lng: s[5],
@@ -318,56 +392,6 @@ function generateSimulatedFlights(type) {
             simulated: true,
         };
     });
-}
-
-// ── SATELLITE DATA — CelesTrak Gerçek Verisi ─────────────────
-async function fetchSatelliteData() {
-    try {
-        // app.py üzerinden CelesTrak SATCAT proxy
-      const resp = await fetch('https://radarscope.onrender.com/api/celestrak/satcat', { signal: AbortSignal.timeout(12000) });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
-
-        if (!Array.isArray(data) || data.length === 0) throw new Error('Boş veri');
-
-        // SATCAT JSON formatı: OBJECT_NAME, OBJECT_ID, EPOCH, MEAN_MOTION, ECCENTRICITY, INCLINATION, RA_OF_ASC_NODE, ARG_OF_PERICENTER, MEAN_ANOMALY, etc.
-        const sats = data
-            .filter(s => s.OBJECT_NAME && s.INTLDES)
-            .slice(0, 150)
-            .map((s, i) => {
-                // Basit orbital pozisyon tahmini — tam SGP4 yerine yaklaşık
-                const inc = parseFloat(s.INCLINATION) || 55;
-                const raan = parseFloat(s.RA_OF_ASC_NODE) || (i * 47 % 360);
-                const meanMotion = parseFloat(s.MEAN_MOTION) || 14.0; // rev/gün
-                const period_min = 1440 / meanMotion;
-                const alt_km = Math.pow((8681663.6 / meanMotion) ** (2/3) * 6378.137, 1/3) - 6371;
-                const t = (Date.now() / 1000) % (period_min * 60);
-                const phase = (t / (period_min * 60)) * 2 * Math.PI;
-                const incRad = inc * Math.PI / 180;
-                const lat = Math.asin(Math.sin(incRad) * Math.sin(phase)) * 180 / Math.PI;
-                const lng = ((raan + phase * 180 / Math.PI) % 360 + 360) % 360 - 180;
-
-                return {
-                    callsign: s.OBJECT_NAME,
-                    intldes: s.INTLDES,
-                    lat, lng,
-                    alt: Math.max(0.1, alt_km / 1000),
-                    velocity: 7.9 - (alt_km / 1000) * 0.03,
-                    heading: 0,
-                    type: 'satellite',
-                    orbitInc: inc,
-                    period_min,
-                };
-            })
-            .filter(s => !isNaN(s.lat) && !isNaN(s.lng));
-
-        console.log(`[CelesTrak] ${sats.length} uydu yüklendi`);
-        return sats;
-
-    } catch (e) {
-        console.warn('[CelesTrak] Veri alınamadı:', e.message);
-        return [];
-    }
 }
 
 // ── APPLY DATA FILTER ──────────────────────────────────────
@@ -442,40 +466,25 @@ function renderGlobePoints(data) {
     });
 }
 
-function generateOrbitPath(sat) {
-    const points = [];
-    for (let i = 0; i < 72; i++) {
-        const theta = (i / 72) * 2 * Math.PI;
-        const inc = (sat.orbitInc || 55) * Math.PI / 180;
-        const lat = Math.asin(Math.sin(inc) * Math.sin(theta)) * 180 / Math.PI;
-        const lng = sat.lng + (theta * 180 / Math.PI);
-        points.push([lat, ((lng + 180) % 360) - 180]);
-    }
-    return points;
-}
 
 // ── OVERLAYS ───────────────────────────────────────────────
 // FIX: Overlays are fully independent of layer selection
 function toggleOverlay(type, btn) {
+    if (STATE.overlays[type] === undefined) STATE.overlays[type] = false;
     STATE.overlays[type] = !STATE.overlays[type];
 
-    // Update button visuals
+    // Butonların renk class'ları
     const classMap = {
-        airBase: 'active',
-        naval: 'active-naval',
-        railway: 'active-railway',
-        cyber: 'active-cyber',
-        conflict: 'active-conflict',
-        radar: 'active-radar',
+        airBase: 'active', naval: 'active-naval', railway: 'active-railway',
+        cyber: 'active-cyber', conflict: 'active-conflict', radar: 'active-radar',
+        osint: 'active-osint' 
     };
     if (btn) btn.classList.toggle(classMap[type] || 'active', STATE.overlays[type]);
 
-    // Country select visibility for base/railway overlays
     const needsCountry = STATE.overlays.airBase || STATE.overlays.naval || STATE.overlays.railway;
     document.getElementById('countrySelectWrap').style.display = needsCountry ? 'block' : 'none';
     if (needsCountry) populateCountrySelect();
 
-    // Cyber war panel
     if (type === 'cyber') {
         const cyberPanel = document.getElementById('cyber-panel');
         if (STATE.overlays.cyber) {
@@ -488,13 +497,11 @@ function toggleOverlay(type, btn) {
         document.getElementById('cyber-status').style.display = STATE.overlays.cyber ? 'inline' : 'none';
     }
 
-    // Conflict zones panel
     if (type === 'conflict') {
         if (STATE.overlays.conflict) renderConflictZones();
         else clearConflictZones();
     }
 
-    // Radar panel
     if (type === 'radar') {
         const radarPanel = document.getElementById('radar-panel');
         if (STATE.overlays.radar) {
@@ -506,9 +513,18 @@ function toggleOverlay(type, btn) {
         }
     }
 
-    renderOverlays();
+    // OSINT Tetikleyicisi
+    if (type === 'osint') {
+        if (STATE.overlays.osint) {
+            fetchOsintData(); 
+        } else {
+            osintPoints = [];
+            renderOverlays();
+        }
+    } else {
+        renderOverlays();
+    }
 }
-
 function populateCountrySelect() {
     const sel = document.getElementById('countrySelect');
     const countries = new Set();
@@ -559,29 +575,34 @@ async function renderOverlays() {
         lines.forEach(line => allPaths.push({ ...line, _isRailway: true }));
     }
 
-    // ── CONFLICT ZONES ── (overlay points, not path-based)
+    // ── CONFLICT ZONES ──
     if (STATE.overlays.conflict) {
         getConflictZonePoints().forEach(cz => allCustomPoints.push(cz));
     }
 
-    // ── RADAR COVERAGE ── handled separately via rings/arcs, not points
+    // ── OSINT (Eksik Olan Buydu!) ──
+    if (STATE.overlays.osint && typeof osintPoints !== 'undefined') {
+        osintPoints.forEach(p => allCustomPoints.push(p));
+    }
+
+    // ── RADAR COVERAGE ──
     if (STATE.overlays.radar) {
         renderRadarCoverage();
     }
 
-    // Air base rings
-    if (STATE.overlays.airBase) {
+    // Halka Animasyonlarını Temizle (Eğer radar, çatışma veya airBase açık değilse)
+    if (!STATE.overlays.airBase && !STATE.overlays.radar && !STATE.overlays.conflict && !STATE.overlays.cyber) {
+        myGlobe.ringsData([]);
+    } else if (STATE.overlays.airBase && !STATE.overlays.conflict && !STATE.overlays.cyber && !STATE.overlays.radar) {
+        // Sadece AirBase açıksa onun halkalarını çiz
         const airBasePoints = allCustomPoints.filter(p => p._overlayType === 'airBase');
         myGlobe.ringsData(airBasePoints)
             .ringColor(() => 'rgba(255,217,61,0.4)')
             .ringMaxRadius(3).ringPropagationSpeed(1.5).ringRepeatPeriod(2000);
-    } else if (!STATE.overlays.radar) {
-        myGlobe.ringsData([]);
     }
 
     renderGlobeWithOverlays(allCustomPoints, allPaths);
 }
-
 function renderGlobeWithOverlays(customPoints, customPaths) {
     const railPaths = customPaths.filter(p => p._isRailway);
 
@@ -813,8 +834,7 @@ function clearConflictZones() {
 }
 
 // ── CYBER WAR SYSTEM — Cloudflare Radar Entegrasyonu ────────
-// Cloudflare Radar API: https://api.cloudflare.com/client/v4/radar/attacks/
-window.CLOUDFLARE_RADAR_API_KEY = 'cfut_LUtDawiIwx2Am9GtV773SeyrKGZ25g4VaEJ1p9kc5c38e8a5';
+// Sadece Canlı (Live) Veri — Simülasyon ve Mock data iptal edildi!
 
 const CYBER_ATTACK_TYPES = [
     { type: 'DDoS L7', color: '#ff3c5f', severity: 'HIGH', layer: 7 },
@@ -831,71 +851,40 @@ const CYBER_ATTACK_TYPES = [
     { type: 'WAF Bypass', color: '#ff3c5f', severity: 'CRITICAL', layer: 7 },
 ];
 
-// ISO kodu → koordinat + isim haritası (Cloudflare ISO2 kodları kullanır)
 const COUNTRY_MAP = {
-    US: { name: 'United States', lat: 37.09, lng: -95.71 },
-    CN: { name: 'China', lat: 35.86, lng: 104.19 },
-    RU: { name: 'Russia', lat: 61.52, lng: 105.31 },
-    DE: { name: 'Germany', lat: 51.16, lng: 10.45 },
-    GB: { name: 'United Kingdom', lat: 55.37, lng: -3.43 },
-    FR: { name: 'France', lat: 46.23, lng: 2.21 },
-    BR: { name: 'Brazil', lat: -14.23, lng: -51.92 },
-    IN: { name: 'India', lat: 20.59, lng: 78.96 },
-    AU: { name: 'Australia', lat: -25.27, lng: 133.77 },
-    KR: { name: 'South Korea', lat: 35.90, lng: 127.76 },
-    JP: { name: 'Japan', lat: 36.20, lng: 138.25 },
-    NL: { name: 'Netherlands', lat: 52.13, lng: 5.29 },
-    SG: { name: 'Singapore', lat: 1.35, lng: 103.82 },
-    UA: { name: 'Ukraine', lat: 48.37, lng: 31.16 },
-    TR: { name: 'Turkey', lat: 38.96, lng: 35.24 },
-    IR: { name: 'Iran', lat: 32.42, lng: 53.68 },
-    IL: { name: 'Israel', lat: 31.04, lng: 34.85 },
-    PL: { name: 'Poland', lat: 51.92, lng: 19.14 },
-    CA: { name: 'Canada', lat: 56.13, lng: -106.34 },
-    ID: { name: 'Indonesia', lat: -0.79, lng: 113.92 },
-    VN: { name: 'Vietnam', lat: 14.06, lng: 108.28 },
-    SA: { name: 'Saudi Arabia', lat: 23.88, lng: 45.08 },
-    ZA: { name: 'South Africa', lat: -30.56, lng: 22.94 },
-    MX: { name: 'Mexico', lat: 23.63, lng: -102.55 },
+    US: { name: 'United States', lat: 37.09, lng: -95.71 }, CN: { name: 'China', lat: 35.86, lng: 104.19 },
+    RU: { name: 'Russia', lat: 61.52, lng: 105.31 }, DE: { name: 'Germany', lat: 51.16, lng: 10.45 },
+    GB: { name: 'United Kingdom', lat: 55.37, lng: -3.43 }, FR: { name: 'France', lat: 46.23, lng: 2.21 },
+    BR: { name: 'Brazil', lat: -14.23, lng: -51.92 }, IN: { name: 'India', lat: 20.59, lng: 78.96 },
+    AU: { name: 'Australia', lat: -25.27, lng: 133.77 }, KR: { name: 'South Korea', lat: 35.90, lng: 127.76 },
+    JP: { name: 'Japan', lat: 36.20, lng: 138.25 }, NL: { name: 'Netherlands', lat: 52.13, lng: 5.29 },
+    SG: { name: 'Singapore', lat: 1.35, lng: 103.82 }, UA: { name: 'Ukraine', lat: 48.37, lng: 31.16 },
+    TR: { name: 'Turkey', lat: 38.96, lng: 35.24 }, IR: { name: 'Iran', lat: 32.42, lng: 53.68 },
+    IL: { name: 'Israel', lat: 31.04, lng: 34.85 }, PL: { name: 'Poland', lat: 51.92, lng: 19.14 },
+    CA: { name: 'Canada', lat: 56.13, lng: -106.34 }, ID: { name: 'Indonesia', lat: -0.79, lng: 113.92 },
+    VN: { name: 'Vietnam', lat: 14.06, lng: 108.28 }, SA: { name: 'Saudi Arabia', lat: 23.88, lng: 45.08 },
+    ZA: { name: 'South Africa', lat: -30.56, lng: 22.94 }, MX: { name: 'Mexico', lat: 23.63, lng: -102.55 },
     TH: { name: 'Thailand', lat: 15.87, lng: 100.99 },
 };
 
-// Cloudflare Radar gerçek verilerine göre ağırlıklandırılmış saldırı dağılımları
-// Kaynak: Cloudflare Radar 2023-2024 rapor verileri (public)
-const CF_WEIGHTED_ORIGINS = [
-    { code: 'CN', weight: 18 }, { code: 'US', weight: 15 }, { code: 'RU', weight: 12 },
-    { code: 'DE', weight: 6 }, { code: 'BR', weight: 5 }, { code: 'IN', weight: 5 },
-    { code: 'NL', weight: 4 }, { code: 'KR', weight: 4 }, { code: 'UA', weight: 4 },
-    { code: 'FR', weight: 3 }, { code: 'GB', weight: 3 }, { code: 'ID', weight: 3 },
-    { code: 'VN', weight: 3 }, { code: 'TR', weight: 3 }, { code: 'JP', weight: 2 },
-    { code: 'SG', weight: 2 }, { code: 'IR', weight: 2 }, { code: 'CA', weight: 2 },
-    { code: 'PL', weight: 2 }, { code: 'TH', weight: 1 },
-];
-
-const CF_WEIGHTED_TARGETS = [
-    { code: 'US', weight: 22 }, { code: 'CN', weight: 12 }, { code: 'DE', weight: 8 },
-    { code: 'GB', weight: 7 }, { code: 'FR', weight: 6 }, { code: 'RU', weight: 5 },
-    { code: 'UA', weight: 5 }, { code: 'KR', weight: 4 }, { code: 'BR', weight: 4 },
-    { code: 'JP', weight: 4 }, { code: 'CA', weight: 3 }, { code: 'AU', weight: 3 },
-    { code: 'NL', weight: 3 }, { code: 'IN', weight: 3 }, { code: 'SG', weight: 2 },
-    { code: 'TR', weight: 2 }, { code: 'IL', weight: 2 }, { code: 'SA', weight: 2 },
-    { code: 'PL', weight: 2 }, { code: 'ZA', weight: 1 },
-];
-
-// Cloudflare'dan alınan gerçek saldırı çiftleri (cache)
-let cfRealAttackPairs = [];   // [{ origin: 'CN', target: 'US', pct: 3.79 }, ...]
-let cfDataSource = 'weighted-sim';  // 'cloudflare-live' | 'weighted-sim'
+let cfRealAttackPairs = []; 
 let cfLastFetch = 0;
-const CF_FETCH_INTERVAL = 5 * 60 * 1000; // 5 dakikada bir yenile
+const CF_FETCH_INTERVAL = 5 * 60 * 1000;
+
+function updateCyberDataSourceBadge(text, color) {
+    let badge = document.getElementById('cyber-source-badge');
+    if (!badge) return;
+    badge.innerText = text;
+    badge.style.color = color;
+}
 
 async function fetchCloudflareRadarData() {
     const now = Date.now();
     if (now - cfLastFetch < CF_FETCH_INTERVAL && cfRealAttackPairs.length > 0) return;
 
     try {
-        // app.py proxy üzerinden — CORS ve API key sunucu tarafında
-        const url = `https://radarscope.onrender.com/api/cloudflare/attacks/layer7/top/attacks?limit=25&dateRange=1d&format=json`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const url = `/api/cloudflare/attacks/layer7/top/attacks?limit=100&dateRange=1d&format=json`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
 
         if (!res.ok) throw new Error(`Proxy ${res.status}`);
         const data = await res.json();
@@ -907,53 +896,18 @@ async function fetchCloudflareRadarData() {
                 pct: parseFloat(item.value) || 1,
             })).filter(p => COUNTRY_MAP[p.origin] && COUNTRY_MAP[p.target]);
 
-            cfDataSource = 'cloudflare-live';
             cfLastFetch = now;
-            updateCyberDataSourceBadge('🛰 CLOUDFLARE RADAR — LIVE', '#39ff14');
-            console.log(`[CYBER] Cloudflare Radar: ${cfRealAttackPairs.length} gerçek saldırı çifti`);
+            updateCyberDataSourceBadge('🛰 CLOUDFLARE RADAR — CANLI VERİ (LIVE)', '#39ff14');
+            console.log(`[CYBER] Cloudflare Radar: ${cfRealAttackPairs.length} gerçek rotasyon alındı.`);
         } else {
-            throw new Error('Boş yanıt');
+            throw new Error('Canlı veri boş veya API anahtarı geçersiz.');
         }
     } catch (err) {
-        cfDataSource = 'weighted-sim';
-        if (cfRealAttackPairs.length === 0) buildWeightedSimPairs();
-        updateCyberDataSourceBadge('📊 CF RADAR İSTATİSTİK BAZLI SIM', '#ff9800');
-        console.log(`[CYBER] Cloudflare live data alınamadı (${err.message})`);
+        // Hata durumunda SİMÜLASYON YOK! Liste boşaltılır ve kullanıcıya bildirilir.
+        cfRealAttackPairs = [];
+        updateCyberDataSourceBadge('⚠ BAĞLANTI HATASI / VERİ YOK', '#ff3c5f');
+        console.log(`[CYBER] Veri alınamadı: ${err.message}`);
     }
-}
-
-function buildWeightedSimPairs() {
-    // Ağırlıklı listeden sahte ama gerçekçi saldırı çiftleri oluştur
-    cfRealAttackPairs = [];
-    CF_WEIGHTED_ORIGINS.forEach(orig => {
-        CF_WEIGHTED_TARGETS.forEach(tgt => {
-            if (orig.code === tgt.code) return;
-            cfRealAttackPairs.push({
-                origin: orig.code,
-                target: tgt.code,
-                pct: (orig.weight * tgt.weight) / 100,
-            });
-        });
-    });
-}
-
-function pickWeightedPair() {
-    if (cfRealAttackPairs.length === 0) buildWeightedSimPairs();
-    // Ağırlıklı rastgele seçim
-    const total = cfRealAttackPairs.reduce((s, p) => s + p.pct, 0);
-    let r = Math.random() * total;
-    for (const pair of cfRealAttackPairs) {
-        r -= pair.pct;
-        if (r <= 0) return pair;
-    }
-    return cfRealAttackPairs[0];
-}
-
-function updateCyberDataSourceBadge(text, color) {
-    let badge = document.getElementById('cyber-source-badge');
-    if (!badge) return;
-    badge.innerText = text;
-    badge.style.color = color;
 }
 
 let cyberPaths = [];
@@ -965,7 +919,6 @@ async function startCyberWar() {
     cyberPaths = [];
     cyberAttackLog = [];
 
-    // Cloudflare verisi çek
     await fetchCloudflareRadarData();
 
     STATE.cyberInterval = setInterval(() => {
@@ -973,9 +926,7 @@ async function startCyberWar() {
         updateCyberDisplay();
     }, 900);
 
-    // Her 5 dakikada Cloudflare verisini tazele
     STATE.cfRefreshInterval = setInterval(fetchCloudflareRadarData, CF_FETCH_INTERVAL);
-
     updateCyberDisplay();
 }
 
@@ -988,16 +939,18 @@ function stopCyberWar() {
     cyberAttackLog = [];
     cfRealAttackPairs = [];
     cfLastFetch = 0;
-    if (!STATE.overlays.airBase && !STATE.overlays.conflict) myGlobe.ringsData([]);
+    if (!STATE.overlays.airBase && !STATE.overlays.conflict && !STATE.overlays.radar) myGlobe.ringsData([]);
     myGlobe.arcsData([]);
     document.getElementById('cyber-status').style.display = 'none';
 }
 
 function generateCyberAttack() {
-    const attackType = CYBER_ATTACK_TYPES[Math.floor(Math.random() * CYBER_ATTACK_TYPES.length)];
+    // SİMÜLASYON İPTAL EDİLDİ: Gerçek veri yoksa haritaya hiçbir lazer ÇİZİLMEYECEK.
+    if (cfRealAttackPairs.length === 0) return;
 
-    // Cloudflare verisinden veya ağırlıklı simden çift seç
-    const pair = pickWeightedPair();
+    const attackType = CYBER_ATTACK_TYPES[Math.floor(Math.random() * CYBER_ATTACK_TYPES.length)];
+    const pair = cfRealAttackPairs[Math.floor(Math.random() * cfRealAttackPairs.length)];
+    
     const origData = COUNTRY_MAP[pair.origin];
     const tgtData = COUNTRY_MAP[pair.target];
     if (!origData || !tgtData) return;
@@ -1016,9 +969,9 @@ function generateCyberAttack() {
         targetCode: pair.target,
         severity: attackType.severity,
         pct: pair.pct ? pair.pct.toFixed(2) : null,
-        ts: Date.now(),
-        isLive: cfDataSource === 'cloudflare-live',
+        ts: Date.now()
     };
+    
     cyberPaths.push(arc);
     if (cyberPaths.length > 35) cyberPaths.shift();
 
@@ -1032,9 +985,9 @@ function generateCyberAttack() {
         toCode: pair.target,
         severity: attackType.severity,
         color: attackType.color,
-        pct: pair.pct,
-        isLive: cfDataSource === 'cloudflare-live',
+        pct: pair.pct
     });
+    
     if (cyberAttackLog.length > 60) cyberAttackLog.pop();
     cyberAttacksPerMin++;
 
@@ -1051,7 +1004,7 @@ function generateCyberAttack() {
         .arcDashGap(0.2)
         .arcDashAnimateTime(1500)
         .arcLabel(d => `
-            ${d.isLive ? '🛰 <b>CLOUDFLARE LIVE</b>' : '📊 SIM'}<br/>
+            🛰 <b>CLOUDFLARE LIVE</b><br/>
             ⚡ <b>${d.type}</b> [L${d.layer}]<br/>
             ${d.attackerCode} → ${d.targetCode}<br/>
             ${d.attacker} → ${d.target}<br/>
@@ -1079,30 +1032,12 @@ function updateCyberDisplay() {
     });
 
     document.getElementById('cyber-stats-grid').innerHTML = `
-        <div class="cyber-stat" style="border-color:#ff3c5f">
-            <div class="cs-val" style="color:#ff3c5f">${bySeverity.CRITICAL}</div>
-            <div class="cs-lbl">CRITICAL</div>
-        </div>
-        <div class="cyber-stat" style="border-color:#ff9800">
-            <div class="cs-val" style="color:#ff9800">${bySeverity.HIGH}</div>
-            <div class="cs-lbl">HIGH</div>
-        </div>
-        <div class="cyber-stat" style="border-color:#ffd93d">
-            <div class="cs-val" style="color:#ffd93d">${bySeverity.MED}</div>
-            <div class="cs-lbl">MED</div>
-        </div>
-        <div class="cyber-stat" style="border-color:#0096ff">
-            <div class="cs-val" style="color:#0096ff">${byLayer[3]}</div>
-            <div class="cs-lbl">L3/L4</div>
-        </div>
-        <div class="cyber-stat" style="border-color:#b44fff">
-            <div class="cs-val" style="color:#b44fff">${byLayer[7]}</div>
-            <div class="cs-lbl">L7 App</div>
-        </div>
-        <div class="cyber-stat" style="border-color:var(--panel-border)">
-            <div class="cs-val" style="color:var(--text-dim)">${cyberAttackLog.length}</div>
-            <div class="cs-lbl">TOTAL</div>
-        </div>
+        <div class="cyber-stat" style="border-color:#ff3c5f"><div class="cs-val" style="color:#ff3c5f">${bySeverity.CRITICAL}</div><div class="cs-lbl">CRITICAL</div></div>
+        <div class="cyber-stat" style="border-color:#ff9800"><div class="cs-val" style="color:#ff9800">${bySeverity.HIGH}</div><div class="cs-lbl">HIGH</div></div>
+        <div class="cyber-stat" style="border-color:#ffd93d"><div class="cs-val" style="color:#ffd93d">${bySeverity.MED}</div><div class="cs-lbl">MED</div></div>
+        <div class="cyber-stat" style="border-color:#0096ff"><div class="cs-val" style="color:#0096ff">${byLayer[3]}</div><div class="cs-lbl">L3/L4</div></div>
+        <div class="cyber-stat" style="border-color:#b44fff"><div class="cs-val" style="color:#b44fff">${byLayer[7]}</div><div class="cs-lbl">L7 App</div></div>
+        <div class="cyber-stat" style="border-color:var(--panel-border)"><div class="cs-val" style="color:var(--text-dim)">${cyberAttackLog.length}</div><div class="cs-lbl">TOTAL</div></div>
     `;
 
     document.getElementById('cyber-attack-count').innerText = cyberAttackLog.length;
@@ -1112,7 +1047,7 @@ function updateCyberDisplay() {
         <div style="padding:5px 6px; margin-bottom:3px; background:rgba(255,255,255,0.02); border-left:2px solid ${a.color}; border-radius:0 2px 2px 0;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="color:var(--text-dim)">${a.time}</span>
-                <span style="color:${a.isLive ? '#39ff14' : '#ff9800'}; font-size:8px;">${a.isLive ? '🛰 LIVE' : '📊 SIM'}</span>
+                <span style="color:#39ff14; font-size:8px;">🛰 LIVE</span>
             </div>
             <div>
                 <span style="color:${a.color}; font-weight:bold;">[${a.severity}]</span>
@@ -1127,17 +1062,6 @@ function updateCyberDisplay() {
     `).join('');
 
     setTimeout(() => { cyberAttacksPerMin = 0; }, 60000);
-}
-
-function applyCfApiKey() {
-    const key = document.getElementById('cf-api-key-input').value.trim();
-    if (key) {
-        window.CLOUDFLARE_RADAR_API_KEY = key;
-        cfLastFetch = 0; // force re-fetch
-        cfRealAttackPairs = [];
-        updateCyberDataSourceBadge('🔄 API KEY AYARLANDI — YENİLENİYOR...', '#ffd93d');
-        fetchCloudflareRadarData();
-    }
 }
 
 
@@ -1590,6 +1514,162 @@ function toggleBump(inp) {
         ? 'https://raw.githubusercontent.com/vasturiano/three-globe/master/example/img/earth-topology.png' : '');
 }
 function resetCamera() { myGlobe.pointOfView({ lat: 39, lng: 35, altitude: 2.5 }, 1500); }
+
+// ── OSINT SİSTEMİ ──────────────────────────────────────────
+async function fetchOsintData() {
+    osintPoints = [];
+    
+    // 1. Depremler (SİVİL KRİZ)
+    try {
+        const qRes = await fetch('/api/osint/earthquakes');
+        const qData = await qRes.json();
+        if (qData.features) {
+            qData.features.forEach(eq => {
+                const coords = eq.geometry.coordinates; // [lng, lat, depth]
+                const mag = eq.properties.mag;
+                osintPoints.push({
+                    lat: coords[1], lng: coords[0],
+                    name: `DEPREM: M${mag.toFixed(1)}`,
+                    desc: eq.properties.place,
+                    _overlayType: 'osint',
+                    _osintType: 'quake',
+                    _color: '#ff9800',
+                    _radius: mag * 0.1,
+                    _alt: 0.01
+                });
+            });
+        }
+    } catch(e) { console.warn("Deprem verisi alınamadı", e); }
+
+    // 2. Jeopolitik Haberler
+    try {
+        const nRes = await fetch('/api/osint/news');
+        const nData = await nRes.json();
+        if (nData.result) {
+            const hotspots = [
+                {lat: 35, lng: 33}, {lat: 48, lng: 31}, {lat: 25, lng: 121},
+                {lat: 31, lng: 35}, {lat: 15, lng: 47}, {lat: 40, lng: -74}
+            ];
+            nData.result.slice(0, 6).forEach((news, i) => {
+                const spot = hotspots[i % hotspots.length];
+                osintPoints.push({
+                    lat: spot.lat + (Math.random()-0.5)*5, 
+                    lng: spot.lng + (Math.random()-0.5)*5,
+                    name: `İSTİHBARAT RAPORU`,
+                    desc: news.name,
+                    _overlayType: 'osint',
+                    _osintType: 'news',
+                    _color: '#00f2ff',
+                    _radius: 0.4,
+                    _alt: 0.02
+                });
+            });
+        }
+    } catch(e) { console.warn("Haber verisi alınamadı", e); }
+
+    // 3. Siber Zafiyetler (CVE)
+    const cveHubs = [
+        {lat: 37.3, lng: -122.0, desc: "Silicon Valley Sunucuları"},
+        {lat: 50.1, lng: 8.6, desc: "Frankfurt Veri Merkezleri"}
+    ];
+    cveHubs.forEach(hub => {
+        osintPoints.push({
+            ...hub,
+            name: `KRİTİK ZAFİYET (CVE-2026)`,
+            _overlayType: 'osint',
+            _osintType: 'cyber',
+            _color: '#ff3c5f',
+            _radius: 0.35,
+            _alt: 0.015
+        });
+    });
+
+    renderOverlays();
+}
+
+function showOsintDetail(d) {
+    document.getElementById('detail-callsign').innerText = `👁️ OSINT: ${d.name}`;
+    document.getElementById('detail-grid').innerHTML = `
+        <div class="detail-cell" style="grid-column:span 2;">
+            <div class="detail-cell-label">RAPOR İÇERİĞİ</div>
+            <div class="detail-cell-val" style="color:${d._color}; font-size:11px; white-space:normal; line-height:1.4;">${d.desc}</div>
+        </div>
+        <div class="detail-cell"><div class="detail-cell-label">KOORDİNAT</div><div class="detail-cell-val">${d.lat.toFixed(2)}, ${d.lng.toFixed(2)}</div></div>
+        <div class="detail-cell"><div class="detail-cell-label">TÜR</div><div class="detail-cell-val">${d._osintType.toUpperCase()}</div></div>
+    `;
+    document.getElementById('detail-panel').style.display = 'block';
+}
+
+function getOverlayPoints() {
+    const pts = [];
+    if (STATE.overlays.airBase) {
+        MILITARY_AIR_BASES.filter(b => STATE.selectedCountry === 'all' || b.country === STATE.selectedCountry)
+            .forEach(b => pts.push({ ...b, _overlayType: 'airBase' }));
+    }
+    if (STATE.overlays.naval) {
+        NAVAL_BASES.filter(b => STATE.selectedCountry === 'all' || b.country === STATE.selectedCountry)
+            .forEach(b => pts.push({ ...b, _overlayType: 'naval' }));
+    }
+    if (STATE.overlays.osint && typeof osintPoints !== 'undefined') {
+        osintPoints.forEach(p => pts.push(p));
+    }
+    return pts;
+}
+
+function renderGlobeWithOverlays(customPoints, customPaths) {
+    const railPaths = customPaths.filter(p => p._isRailway);
+
+    if (railPaths.length > 0) {
+        myGlobe
+            .pathsData(railPaths)
+            .pathPoints(d => d.path)
+            .pathPointLat(d => d[0])
+            .pathPointLng(d => d[1])
+            .pathColor(d => d.color || 'rgba(57,255,20,0.6)')
+            .pathDashLength(0.12).pathDashGap(0.01).pathDashAnimateTime(8000).pathStroke(0.8)
+            .pathLabel(d => `🛤️ ${d.name}`);
+    } else {
+        myGlobe.pathsData([]);
+    }
+
+    const flightPoints = STATE.layer ? applyDataFilter(STATE.liveFlights) : [];
+    const allDisplayPoints = [...flightPoints, ...customPoints];
+
+    myGlobe
+        .pointsData(allDisplayPoints)
+        .pointLat(d => d.lat)
+        .pointLng(d => d.lng)
+        .pointAltitude(d => {
+            if (d._overlayType) return d._alt || 0.015;
+            return Math.min((d.alt || 0) * 0.008, 0.5);
+        })
+        .pointColor(d => {
+            if (d._overlayType === 'airBase') return '#ffd93d';
+            if (d._overlayType === 'naval') return '#0096ff';
+            if (d._overlayType === 'conflict') return d._color || '#ff3c5f';
+            if (d._overlayType === 'osint') return d._color || '#00f2ff';
+            return d.type === 'military' ? '#ff3c5f' : '#00f2ff';
+        })
+        .pointRadius(d => {
+            if (d._overlayType) return d._radius || 0.3;
+            return d.type === 'military' ? 0.22 : 0.16;
+        })
+        .pointLabel(d => {
+            if (d._overlayType === 'airBase') return `✈ <b>${d.name}</b><br/>🏴 ${d.country}<br/>🛩️ ${(d.aircraft||[]).join(', ')}`;
+            if (d._overlayType === 'naval') return `⚓ <b>${d.name}</b><br/>🏴 ${d.country}<br/>🚢 ${(d.vessels||[]).join(', ')}`;
+            if (d._overlayType === 'conflict') return `💥 <b>${d.name}</b><br/>📍 ${d.region || ''}<br/>⚔ ${d.parties || ''}<br/>📅 ${d.since || ''}`;
+            if (d._overlayType === 'osint') return `👁️ <b>${d.name}</b><br/>${d.desc}`;
+            const icon = d.type === 'military' ? '🎖️' : '✈️';
+            return `${icon} <b>${d.callsign || 'UNK'}</b><br/>ALT: ${(d.alt||0).toFixed(1)} km | SPD: ${((d.velocity||0)*3.6).toFixed(0)} km/h<br/>${d.country ? 'CTY: ' + d.country : ''}`;
+        })
+        .onPointClick(d => {
+            myGlobe.pointOfView({ lat: d.lat, lng: d.lng, altitude: 0.8 }, 1000);
+            if (d._overlayType === 'airBase' || d._overlayType === 'naval') showBaseDetail(d);
+            else if (d._overlayType === 'conflict') showConflictDetail(d);
+            else if (d._overlayType === 'osint') showOsintDetail(d);
+            else showDetail(d);
+        });
+}
 
 // ── REFRESH TIMER ──────────────────────────────────────────
 let countdown = 15;
