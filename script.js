@@ -252,7 +252,7 @@ function processWebSocketData(raw) {
 // ── FETCH MILITARY ─────────────────────────────────────────
 async function fetchMilitaryFlights() {
     try {
-        const res = await fetch('https://opensky-network.org/api/states/all', { signal: AbortSignal.timeout(8000) });
+        const res = await fetch('https://radarscope.onrender.com/api/opensky/states', { signal: AbortSignal.timeout(15000) });
         if (!res.ok) throw new Error('API error');
         const raw = await res.json();
         if (!raw.states) return [];
