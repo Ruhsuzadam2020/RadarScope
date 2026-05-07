@@ -1,4 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# Environment
 .env
-node_modules/
+
+# OS
 .DS_Store
-dist/
+Thumbs.db
