@@ -109,6 +109,7 @@ def opensky_proxy():
             'source': 'error'
         }), 504
     except Exception as e:
+        print(f"[OpenSky] Backend Hatası: {e}")  # <-- BU SATIRI EKLE
         return jsonify({
             'states': [],
             'error': str(e),
