@@ -26,16 +26,64 @@ const STATE = {
 };
 
 // ── WEBSOCKET ──────────────────────────────────────────────
-const socket = io("https://radarscope.onrender.com", { transports: ['websocket'], reconnectionAttempts: 3 });
+const BACKEND_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5000'
+    : 'https://radarscope.onrender.com';
 
-socket.on('live_flight_data', (raw) => {
-    if (STATE.layer === 'civilian') {
-        processWebSocketData(raw);
-    }
+const socket = io(BACKEND_URL, {
+    transports: ['polling', 'websocket'], // polling önce — Render'da daha güvenilir
+    reconnectionAttempts: 10,
+    reconnectionDelay: 3000,
+    timeout: 20000,
 });
 
-socket.on('connect_error', () => {
-    console.warn('[WebSocket] Sunucuya bağlanılamadı. Canlı veri yok.');
+let wsConnected = false;
+let httpPollInterval = null;
+
+socket.on('connect', () => {
+    wsConnected = true;
+    console.log('[Socket.IO] ✓ Bağlandı:', socket.io.engine.transport.name);
+    if (httpPollInterval) { clearInterval(httpPollInterval); httpPollInterval = null; }
+});
+
+socket.on('live_flight_data', (raw) => {
+    if (STATE.layer === 'civilian') processWebSocketData(raw);
+});
+
+socket.on('connect_error', (err) => {
+    wsConnected = false;
+    console.warn('[Socket.IO] Bağlanamadı:', err.message, '— HTTP polling devreye giriyor');
+    startHttpPolling();
+});
+
+socket.on('disconnect', () => {
+    wsConnected = false;
+    startHttpPolling();
+});
+
+// HTTP Polling — Socket.IO çalışmazsa doğrudan /api/opensky/states çeker
+function startHttpPolling() {
+    if (httpPollInterval) return;
+    httpPollInterval = setInterval(async () => {
+        if (wsConnected || STATE.layer !== 'civilian') return;
+        try {
+            const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) });
+            if (res.ok) processWebSocketData(await res.json());
+        } catch (e) { console.warn('[HTTP Poll]', e.message); }
+    }, 15000);
+    // İlk isteği hemen gönder
+    if (STATE.layer === 'civilian') {
+        fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) })
+            .then(r => r.json()).then(processWebSocketData).catch(() => {});
+    }
+}
+
+socket.on('connect', () => {
+    console.log('[WebSocket] Bağlandı ✓');
+});
+
+socket.on('disconnect', (reason) => {
+    console.warn('[WebSocket] Bağlantı kesildi:', reason);
 });
 
 // ── GLOBE INIT ─────────────────────────────────────────────
@@ -211,13 +259,12 @@ function processWebSocketData(raw) {
 }
 
 // ── FETCH MILITARY ─────────────────────────────────────────
-// CORS düzeltmesi: Doğrudan OpenSky yerine backend proxy kullanılıyor
 async function fetchMilitaryFlights() {
     try {
-        const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(15000) });
-        if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+        const res = await fetch('https://opensky-network.org/api/states/all', { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error('API error');
         const raw = await res.json();
-        if (!raw.states || raw.states.length === 0) return [];
+        if (!raw.states) return [];
 
         const milFlights = raw.states
             .filter(s => {
@@ -237,21 +284,56 @@ async function fetchMilitaryFlights() {
                 type: 'military'
             }));
 
-        console.log(`[Military] ${milFlights.length} askeri uçuş bulundu`);
-        return milFlights;
+        return milFlights; // boş olsa bile döndür
     } catch (e) {
-        console.warn('[Military] OpenSky proxy hatası:', e.message);
+        console.warn('[Military] OpenSky hatası:', e.message);
         return [];
     }
 }
 
-// generateSimulatedFlights — KALDIRILDI: Sahte veri gösterilmez
+// ── SIMULATED FLIGHTS ──────────────────────────────────────
+function generateSimulatedFlights(type) {
+    const count = type === 'military' ? 80 : 250;
+    const callsigns_civ = ['THY','TK','DLH','LFT','AFR','BAW','UAE','QTR','ETD',
+        'KLM','SAS','IBO','AHY','FLY','BMS','VYL','SXS','ERA','BER',
+        'SWR','AZA','TAP','IBE','VIR','DAL','UAL','AAL','SWA','FDX'];
+    const callsigns_mil = ['MAGMA11','REACH90','JAKE22','HOMER61','TOPAZ17',
+        'COBRA01','VIPER22','GHOST13','IRON80','FURY33','RAVEN12','WOLF44',
+        'DUKE99','BOXER22','LANCE55','BONE21','DAGGER08','TALON19','GRIM77',
+        'HAVOC31','RAPTOR01','EAGLE22','NOBLE14','STEEL88','SPAR21'];
+
+    const routes = [
+        { lat: 41, lng: 29 }, { lat: 51, lng: 0 }, { lat: 48, lng: 2 },
+        { lat: 40, lng: -74 }, { lat: 37, lng: -122 }, { lat: 55, lng: 37 },
+        { lat: 35, lng: 139 }, { lat: 22, lng: 114 }, { lat: -34, lng: 151 },
+        { lat: 28, lng: 77 }, { lat: 1, lng: 104 }, { lat: -23, lng: -46 }, { lat: 25, lng: 55 },
+    ];
+
+    return Array.from({ length: count }, (_, i) => {
+        const r = routes[i % routes.length];
+        const spread = type === 'military' ? 15 : 30;
+        const cs = type === 'military'
+            ? callsigns_mil[i % callsigns_mil.length]
+            : `${callsigns_civ[i % callsigns_civ.length]}${(100 + i).toString().padStart(3,'0')}`;
+        return {
+            callsign: cs,
+            lat: r.lat + (Math.random() - 0.5) * spread,
+            lng: r.lng + (Math.random() - 0.5) * spread,
+            alt: type === 'military' ? 1 + Math.random() * 25 : 5 + Math.random() * 13,
+            velocity: type === 'military' ? 200 + Math.random() * 800 : 200 + Math.random() * 300,
+            heading: Math.random() * 360,
+            country: ['TR','US','RU','CN','UK','FR','DE','JP'][i % 8],
+            type,
+            simulated: true,
+        };
+    });
+}
 
 // ── SATELLITE DATA — CelesTrak Gerçek Verisi ─────────────────
 async function fetchSatelliteData() {
     try {
-        // app.py üzerinden CelesTrak GP proxy (düzeltildi: /api/celestrak/satcat)
-        const resp = await fetch('/api/celestrak/satcat', { signal: AbortSignal.timeout(15000) });
+        // app.py üzerinden CelesTrak SATCAT proxy
+        const resp = await fetch('/api/celestrak/gp', { signal: AbortSignal.timeout(12000) });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
 
@@ -319,11 +401,7 @@ function applyFilter() {
 
 // ── RENDER GLOBE POINTS ────────────────────────────────────
 function renderGlobePoints(data) {
-    if (!data || data.length === 0) {
-        // Veri yoksa küreyi temizle — simülasyon gösterme
-        myGlobe.pointsData([]).pathsData([]);
-        return;
-    }
+    if (!data || data.length === 0) return;
 
     if (STATE.layer === 'satellites') {
         const orbitPaths = data.map(sat => ({ ...sat, path: generateOrbitPath(sat) }));
@@ -587,9 +665,8 @@ function renderLiveList(data) {
     document.getElementById('list-count').innerText = data.length;
 
     if (data.length === 0) {
-        listEl.innerHTML = `<div class="list-item loading" style="border-left-color:#ff3c5f">
-            <div style="color:#ff9800; font-size:10px;">📡 CANLI VERİ YOK</div>
-            <div style="color:rgba(255,255,255,0.35); font-size:9px; margin-top:3px;">OpenSky API bağlantısı bekleniyor...<br>Gerçek veri gelene kadar harita boş kalır.</div>
+        listEl.innerHTML = `<div class="list-item loading" style="border-left-color:#ff9800">
+            <div style="color:#ff9800; font-size:10px;">⏳ VERİ BEKLENİYOR — CANLI FEED YÜKLENİYOR...</div>
         </div>`;
         return;
     }
@@ -849,8 +926,8 @@ async function fetchCloudflareRadarData() {
     } catch (err) {
         cfDataSource = 'weighted-sim';
         if (cfRealAttackPairs.length === 0) buildWeightedSimPairs();
-        updateCyberDataSourceBadge('📊 İSTATİSTİK BAZLI VİZÜELİZASYON (CF API YOK)', '#ff9800');
-        console.log(`[CYBER] Cloudflare live data alınamadı (${err.message}) — ağırlıklı sim aktif`);
+        updateCyberDataSourceBadge('📊 CF RADAR İSTATİSTİK BAZLI SIM', '#ff9800');
+        console.log(`[CYBER] Cloudflare live data alınamadı (${err.message})`);
     }
 }
 
