@@ -46,7 +46,7 @@ function stopHttpPolling() {
 async function pollOpenSky() {
     if (STATE.layer !== 'civilian') return;
     try {
-        const res = await fetch('/api/opensky/states', { signal: AbortSignal.timeout(12000) });
+        const res = await fetch('https://radarscope.onrender.com/api/opensky/states', { signal: AbortSignal.timeout(12000) });
         if (res.ok) {
             const data = await res.json();
             processWebSocketData(data);
@@ -324,7 +324,7 @@ function generateSimulatedFlights(type) {
 async function fetchSatelliteData() {
     try {
         // app.py üzerinden CelesTrak SATCAT proxy
-        const resp = await fetch('/api/celestrak/gp', { signal: AbortSignal.timeout(12000) });
+      const resp = await fetch('https://radarscope.onrender.com/api/celestrak/satcat', { signal: AbortSignal.timeout(12000) });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
 
@@ -894,7 +894,7 @@ async function fetchCloudflareRadarData() {
 
     try {
         // app.py proxy üzerinden — CORS ve API key sunucu tarafında
-        const url = `/api/cloudflare/attacks/layer7/top/attacks?limit=25&dateRange=1d&format=json`;
+        const url = `https://radarscope.onrender.com/api/cloudflare/attacks/layer7/top/attacks?limit=25&dateRange=1d&format=json`;
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
 
         if (!res.ok) throw new Error(`Proxy ${res.status}`);
