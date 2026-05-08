@@ -2,6 +2,7 @@
 import os
 import time
 import requests
+import google.generativeai as genai
 from flask import Flask, send_from_directory, jsonify, request, Response
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ socketio = SocketIO(app,
 OPENSKY_USER = os.getenv('OPENSKY_USER', '')
 OPENSKY_PASS = os.getenv('OPENSKY_PASS', '')
 CF_API_KEY = os.getenv('CF_API_KEY', '')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 COLLECT_API_KEY = os.getenv('COLLECT_API_KEY', '') # CollectAPI anahtarın
 
 # OpenSky için rate limiting yönetimi
@@ -77,7 +79,7 @@ def opensky_proxy():
         if OPENSKY_USER and OPENSKY_PASS:
             auth = (OPENSKY_USER, OPENSKY_PASS)
 
-        resp = requests.get(url, auth=auth, headers=headers, timeout=25)
+        resp = requests.get(url, auth=auth, headers=headers, timeout=12)
 
         if resp.status_code == 200:
             # Rate limit başarılı - reset
@@ -170,6 +172,38 @@ def cloudflare_proxy(cf_path):
         return jsonify({'result': {'top_0': []}, 'error': str(e)}), 200
 
 
+
+
+# ... diğer importlar ve configler ...
+
+# Gemini SDK Yapılandırması (JS örneğindeki gibi)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+
+@app.route('/api/ai/conflict', methods=['POST'])
+def ai_conflict():
+    if not GEMINI_API_KEY:
+        return jsonify({"error": "GEMINI_API_KEY eksik."}), 400
+
+    data = request.json
+    prompt = data.get("prompt", "")
+
+    try:
+        # JS örneğinde kullandığın modeli buraya yazıyoruz
+        model = genai.GenerativeModel("gemini-3-flash-preview")  # VEYA "gemini-2.0-flash-exp"
+
+        # JS'deki generateContent yapısının Python hali
+        response = model.generate_content(prompt)
+
+        # JS örneğindeki gibi direkt metni alıyoruz
+        text = response.text
+
+        return jsonify({"text": text})
+
+    except Exception as e:
+        print(f"[Gemini SDK] Hatası: {e}")
+        return jsonify({"error": str(e)}), 500
 # ── Socket.IO bağlantı logu (opsiyonel) ─────────────────────
 @socketio.on('connect')
 def handle_connect():

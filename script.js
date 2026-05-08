@@ -285,7 +285,7 @@ function processWebSocketData(raw) {
     } else {
         const parsed = raw.states
             .filter(s => s[5] != null && s[6] != null && s[7] != null)
-            .slice(0, 2500)
+            .slice(0, 1000)
             .map(s => {
                 const cs = (s[1] || 'UNK').trim();
                 // FIX: Never mark as military in civilian layer — use type:'civilian'
@@ -337,7 +337,7 @@ async function fetchMilitaryFlights() {
                 const cs = (s[1] || '').trim().toUpperCase();
                 return isMilitaryCallsign(cs);
             })
-            .slice(0, 1000)
+            .slice(0, 500)
             .map(s => ({
                 callsign: (s[1] || 'MIL-???').trim(),
                 lat: s[6], lng: s[5],
@@ -1295,6 +1295,7 @@ function populateConflictSelects() {
     document.getElementById('cp-country-b').value = 'China';
 }
 
+// ── CONFLICT ANALYSIS (Gemini AI Powered) ─────────────────────────
 async function runConflictAnalysis() {
     const countryA = document.getElementById('cp-country-a').value;
     const countryB = document.getElementById('cp-country-b').value;
@@ -1305,50 +1306,52 @@ async function runConflictAnalysis() {
     resultsEl.style.display = 'block';
     resultsEl.innerHTML = `
         <div style="display:flex; align-items:center; gap:8px; color:var(--accent); font-size:10px; letter-spacing:2px;">
-            <div class="loading-pulse"></div> AI ÇATIŞMA ANALİZİ YÜKLENİYOR...
+            <div class="loading-pulse"></div> GEMINI AI ANALİZ EDİYOR...
         </div>
     `;
 
-    const prompt = `Sen bir askeri analiz uzmanısın. ${countryA} ile ${countryB} arasındaki olası ${domainNames[domain]} senaryosunu analiz et.
-
-Şunları kısaca belirt:
-1. Her ülkenin bu alandaki güçlü silah sistemleri (3-4 sistem)
-2. Güç dengesi kısa değerlendirmesi (2-3 cümle)
-3. Olası çatışma senaryosu (2-3 cümle)
-4. Sonuç tahmini (hangi taraf avantajlı, neden)
-
-Yanıtını Türkçe ver. Kısa ve öz tut (max 300 kelime). Sadece teknik/taktik analiz yap, siyasi yorum yapma. Format: başlıkları **kalın** yaz.`;
+    // Gemini için özel, sert ve askeri taktiksel prompt
+    const prompt = `Sen üst düzey bir küresel askeri istihbarat ve C4ISR analistisin. ${countryA} ile ${countryB} arasındaki olası bir "${domainNames[domain]}" senaryosunu analiz et. 
+Lütfen şu 4 başlığı kesinlikle kullan ve çok kısa/net (toplam max 200 kelime) askeri dille yanıtla:
+**1. Kritik Sistemler:** (Her iki tarafın bu alandaki 2-3 kilit silahı)
+**2. Güç Dengesi:** (Kim hangi doktrinde üstün?)
+**3. Olası Taktik Senaryo:** (Çatışma nasıl başlar ve gelişir?)
+**4. Beklenen Sonuç:** (Sürtünme katsayısı ve yıpranmaya göre kim avantajlı?)`;
 
     try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
+        // Doğrudan dışarıya değil, kendi güvenli backend'imize (app.py) istek atıyoruz
+        const response = await fetch("/api/ai/conflict", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                model: "claude-sonnet-4-20250514",
-                max_tokens: 1000,
-                messages: [{ role: "user", content: prompt }]
-            })
+            body: JSON.stringify({ prompt: prompt })
         });
 
         const data = await response.json();
-        const text = data.content?.[0]?.text || 'Analiz alınamadı.';
+        
+        if (data.error) throw new Error(data.error);
 
-        // Simple markdown bold renderer
+        const text = data.text;
+
+        // Gemini'nin Markdown (Kalın yazı) formatını HTML'e çevirme
         const html = text
             .replace(/\*\*(.*?)\*\*/g, '<span style="color:var(--accent); font-weight:bold;">$1</span>')
+            .replace(/\*(.*?)\*/g, '<span style="color:#ffd93d;">$1</span>')
             .replace(/\n\n/g, '<br><br>')
             .replace(/\n/g, '<br>')
-            .replace(/^\d+\. /gm, '<span style="color:var(--accent3);">▸ </span>');
+            .replace(/^\d+\. /gm, '<span style="color:var(--accent3);">▸ </span>')
+            .replace(/^- /gm, '<span style="color:var(--accent2);">▪ </span>');
 
         resultsEl.innerHTML = `
             <div style="color:var(--accent2); font-size:10px; letter-spacing:2px; margin-bottom:8px; border-bottom:1px solid rgba(255,60,95,0.3); padding-bottom:6px;">
                 ⚔ ${countryA} vs ${countryB} — ${domainNames[domain]}
             </div>
-            <div style="font-family:var(--font-mono); font-size:9px; line-height:1.8; color:rgba(255,255,255,0.85);">${html}</div>
-            <div style="margin-top:8px; font-size:8px; color:var(--text-dim); letter-spacing:1px;">⚠ UYARI: Bu analiz spekülatif amaçlıdır. Gerçek askeri kapasite değerlendirmesi değildir.</div>
+            <div style="font-family:var(--font-mono); font-size:10px; line-height:1.8; color:rgba(255,255,255,0.85);">${html}</div>
+            <div style="margin-top:10px; font-size:8px; color:var(--text-dim); letter-spacing:1px; border-top:1px dashed rgba(255,255,255,0.1); padding-top:4px;">
+                ⚡ GÜÇ SAĞLAYICI: GOOGLE GEMINI 1.5 FLASH AI
+            </div>
         `;
 
-        // Show conflict on globe
+        // Haritada iki ülke arasında çatışma yayı (Arc) çiz
         const countryCoords = {
             USA: { lat: 37, lng: -95 }, Russia: { lat: 60, lng: 90 },
             China: { lat: 35, lng: 104 }, Turkey: { lat: 39, lng: 35 },
@@ -1358,6 +1361,8 @@ Yanıtını Türkçe ver. Kısa ve öz tut (max 300 kelime). Sadece teknik/takti
             Japan: { lat: 37, lng: 137 }, France: { lat: 46, lng: 2 },
             UK: { lat: 55, lng: -3 }, Germany: { lat: 51, lng: 10 },
             Taiwan: { lat: 24, lng: 121 }, Ukraine: { lat: 48, lng: 31 },
+            'Saudi Arabia': { lat: 24, lng: 45 }, Brazil: { lat: -14, lng: -51 },
+            Australia: { lat: -25, lng: 133 }, NATO: { lat: 50, lng: 4 }
         };
         const cA = countryCoords[countryA];
         const cB = countryCoords[countryB];
@@ -1371,14 +1376,13 @@ Yanıtını Türkçe ver. Kısa ve öz tut (max 300 kelime). Sadece teknik/takti
             .arcEndLat(d => d.endLat).arcEndLng(d => d.endLng)
             .arcColor(() => ['#ff3c5f00', '#ff3c5f', '#ff3c5faa'])
             .arcAltitudeAutoScale(0.5)
-            .arcStroke(1.0)
+            .arcStroke(1.2)
             .arcDashLength(0.5).arcDashGap(0.2).arcDashAnimateTime(2000);
         }
     } catch (err) {
-        resultsEl.innerHTML = `<div style="color:#ff9800; font-size:10px;">API bağlantı hatası: ${err.message}</div>`;
+        resultsEl.innerHTML = `<div style="color:#ff3c5f; font-size:10px; font-weight:bold;">⚠ AI BAĞLANTI HATASI: ${err.message}</div>`;
     }
 }
-
 // ── SIMULATION ─────────────────────────────────────────────
 function openSim() {
     const panel = document.getElementById('sim-panel');
