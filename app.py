@@ -77,7 +77,7 @@ def opensky_proxy():
         if OPENSKY_USER and OPENSKY_PASS:
             auth = (OPENSKY_USER, OPENSKY_PASS)
 
-        resp = requests.get(url, auth=auth, headers=headers, timeout=12)
+        resp = requests.get(url, auth=auth, headers=headers, timeout=25)
 
         if resp.status_code == 200:
             # Rate limit başarılı - reset
