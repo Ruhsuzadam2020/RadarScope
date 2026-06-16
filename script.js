@@ -624,30 +624,35 @@ async function renderOverlays() {
     renderGlobeWithOverlays(allCustomPoints, allPaths);
 }
 function renderGlobeWithOverlays(customPoints, customPaths) {
-    // 1. DÜZELTME: Sadece bizim eklediğimiz (customData barındıran) entity'leri temizle.
-    // Bu sayede harita her yenilendiğinde "removeAll()" yapıp 3D binaları veya diğer statik nesneleri bozmazsın.
+    // 1. ADIM: Sadece bizim eklediğimiz dinamik taktiksel entity'leri temizle
     const entitiesToRemove = viewer.entities.values.filter(e => e.customData);
     entitiesToRemove.forEach(e => viewer.entities.remove(e));
 
-    // ── 1. HATTSAL VERİLER (Yollar / Demiryolları / Görev Rotaları) ──
+    // Kameranın objeleri ortadan ikiye bölmesini engellemek için lens hassasiyetini artır
+    if (viewer.scene.camera.frustum && viewer.scene.camera.frustum.near) {
+        viewer.scene.camera.frustum.near = 0.1; // Kameraya 10cm yaklaşsa bile nesneyi kesme
+    }
+
+    // ── 1. HATTSAL VERİLER (Demiryolları) ──
     const railPaths = customPaths.filter(p => p._isRailway);
     railPaths.forEach(rail => {
         const cesiumPositions = [];
         rail.path.forEach(coord => {
-            cesiumPositions.push(Cesium.Cartesian3.fromDegrees(coord[1], coord[0], 500));
+            // Çizgilerin araziye gömülmemesi için 1500m yukarıda kavis almasını sağlıyoruz
+            cesiumPositions.push(Cesium.Cartesian3.fromDegrees(coord[1], coord[0], 1500));
         });
         
         viewer.entities.add({
             polyline: {
                 positions: cesiumPositions,
-                width: 2.5,
+                width: 3.0,
                 material: Cesium.Color.fromCssColorString(rail.color || 'rgba(57,255,20,0.6)')
             },
-            customData: { name: rail.name, _overlayType: 'railway' } // Silinmesi için customData ekledik
+            customData: { name: rail.name, _overlayType: 'railway' }
         });
     });
 
-    // ── 2. NOKTASAL VERİLER (Canlı Hava İzleri + Stratejik Tesisler + Askeri Alanlar) ──
+    // ── 2. NOKTASAL VERİLER (Hava İzleri, Barajlar, Santraller vb.) ──
     const flightPoints = STATE.layer ? applyDataFilter(STATE.liveFlights) : [];
     const allDisplayPoints = [...flightPoints, ...customPoints];
 
@@ -656,29 +661,29 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
         let pixelSize = 6;
         let altitudeMeters = (d.alt || 0) * 1000;
 
-        // Stil ayarları
-        if (d._overlayType === 'airBase') { colorStr = '#ffd93d'; pixelSize = 10; altitudeMeters = 200; }
-        else if (d._overlayType === 'naval') { colorStr = '#0096ff'; pixelSize = 10; altitudeMeters = 0; }
-        else if (d._overlayType === 'conflict') { colorStr = d._color || '#ff3c5f'; pixelSize = 12; altitudeMeters = 800; }
-        else if (d._overlayType === 'powerPlants') { colorStr = d._color || '#ff9800'; pixelSize = 7; altitudeMeters = 300; }
-        else if (d._overlayType === 'petroChem') { colorStr = '#ff7043'; pixelSize = 8; altitudeMeters = 300; }
-        else if (d._overlayType === 'waterResources') { colorStr = d._color || '#00f2ff'; pixelSize = 8; altitudeMeters = 0; }
-        else if (d._overlayType === 'techCenters') { colorStr = '#39ff14'; pixelSize = 9; altitudeMeters = 400; }
-        else if (d._overlayType === 'osint') { colorStr = d._color || '#00f2ff'; pixelSize = 9; altitudeMeters = 600; }
+        // Overlay tiplerine göre stil ve ek güvenlik irtifaları
+        // Noktaların araziye (dağlara/tepelere) gömülmesini engellemek için taban yükseklikler artırıldı
+        if (d._overlayType === 'airBase') { colorStr = '#ffd93d'; pixelSize = 10; altitudeMeters = 800; }
+        else if (d._overlayType === 'naval') { colorStr = '#0096ff'; pixelSize = 10; altitudeMeters = 300; }
+        else if (d._overlayType === 'conflict') { colorStr = d._color || '#ff3c5f'; pixelSize = 12; altitudeMeters = 1500; }
+        else if (d._overlayType === 'powerPlants') { colorStr = d._color || '#ff9800'; pixelSize = 7; altitudeMeters = 1200; }
+        else if (d._overlayType === 'petroChem') { colorStr = '#ff7043'; pixelSize = 8; altitudeMeters = 1200; }
+        else if (d._overlayType === 'waterResources') { colorStr = d._color || '#00f2ff'; pixelSize = 8; altitudeMeters = 400; }
+        else if (d._overlayType === 'techCenters') { colorStr = '#39ff14'; pixelSize = 9; altitudeMeters = 1200; }
+        else if (d._overlayType === 'osint') { colorStr = d._color || '#00f2ff'; pixelSize = 9; altitudeMeters = 1400; }
         else if (d._isRadarPoint) {
             colorStr = d.type === 'sam' ? '#ff3c5f' : (d.type === 'airborne' ? '#ffd93d' : '#00f2ff');
-            pixelSize = 12; altitudeMeters = 1000;
+            pixelSize = 12; altitudeMeters = 2000;
 
-            // Radar Kubbesi (bunu da customData ile ekliyoruz ki temizlenebilsin)
             viewer.entities.add({
-                position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, 0),
+                position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, 500),
                 ellipse: {
                     semiMinorAxis: d.range_km * 1000,
                     semiMajorAxis: d.range_km * 1000,
                     material: Cesium.Color.fromCssColorString(colorStr).withAlpha(0.12),
                     outline: true,
                     outlineColor: Cesium.Color.fromCssColorString(colorStr).withAlpha(0.4),
-                    height: 200
+                    height: 500
                 },
                 customData: { _isRadarDome: true } 
             });
@@ -687,18 +692,26 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
             pixelSize = d.type === 'military' ? 8 : 6;
         }
 
-        // 2. DÜZELTME: Point tanımlaması
+        // Eğer sivil/askeri uçak değilse ve baraj/santral gibi yeryüzü overlay'iyse, 
+        // Türkiye'nin ortalama yükseltisinde kaybolmaması için ek koruma payı (offset) ekliyoruz.
+        const finalAltitude = (d.type === 'civilian' || d.type === 'military') ? altitudeMeters : altitudeMeters + 350;
+
+        // Cesium Entity Tanımlaması
         viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, altitudeMeters),
+            position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, finalAltitude),
             point: {
                 pixelSize: pixelSize,
                 color: Cesium.Color.fromCssColorString(colorStr),
                 outlineColor: Cesium.Color.BLACK,
                 outlineWidth: 1.5,
-                // Yaklaşınca kaybolmayı önleyen zırh
-                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 1e9) 
+                // ZIRH 1: Her zoom seviyesinde (0 metreden uzaya kadar) görünürlüğü zorla
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 100000000.0),
+                // ZIRH 2: Kamera yaklaştıkça noktaların küçülüp kaybolmasını engelle, ekranda sabit boyutta tut
+                scaleByDistance: new Cesium.NearFarScalar(1.0e2, 1.0, 1.0e7, 1.0),
+                // ZIRH 3: Arazi derinlik testi açıkken nesnelerin yerin altında kalmasını önleyici rendering önceliği
+                disableDepthTestDistance: Number.POSITIVE_INFINITY
             },
-            customData: d // Bu nesnenin temizlenebilir olmasını sağlar
+            customData: d
         });
     });
 }
