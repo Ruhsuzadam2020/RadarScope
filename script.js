@@ -629,7 +629,7 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
 
     // Her harita yenilemesinde (15s polling veya overlay değişimlerinde) eski dinamik entity'leri sıfırlıyoruz
     // 3D binalar primitive seviyesinde yüklendiği için bu temizlikten zarar görmez!
-    viewer.entities.removeAll();
+    //viewer.entities.removeAll();
 
     // ── 1. HATTSAL VERİLER (Yollar / Demiryolları / Görev Rotaları) ──
     const railPaths = customPaths.filter(p => p._isRailway);
@@ -640,13 +640,18 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
         });
         
         viewer.entities.add({
-            polyline: {
-                positions: cesiumPositions,
-                width: 2.5,
-                material: Cesium.Color.fromCssColorString(rail.color || 'rgba(57,255,20,0.6)')
-            },
-            customData: { name: rail.name, _overlayType: 'railway' }
-        });
+    position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, altitudeMeters),
+    point: {
+        pixelSize: pixelSize,
+        color: Cesium.Color.fromCssColorString(colorStr),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 1.5,
+        // BU SATIR ÇOK ÖNEMLİ: 
+        // 0 metre ile 1 milyar metre arasında her zaman görünür ol
+        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 1e9) 
+    },
+    customData: d
+});
     });
 
     // ── 2. NOKTASAL VERİLER (Canlı Hava İzleri + Stratejik Tesisler + Askeri Alanlar) ──
