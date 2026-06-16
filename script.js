@@ -624,34 +624,27 @@ async function renderOverlays() {
     renderGlobeWithOverlays(allCustomPoints, allPaths);
 }
 function renderGlobeWithOverlays(customPoints, customPaths) {
-    // Uydu katmanı aktifse bu fonksiyonu pas geçiyoruz, karmaşayı önlemek için renderGlobePoints yönetsin
-    if (STATE.layer === 'satellites') return;
-
-    // Her harita yenilemesinde (15s polling veya overlay değişimlerinde) eski dinamik entity'leri sıfırlıyoruz
-    // 3D binalar primitive seviyesinde yüklendiği için bu temizlikten zarar görmez!
-    //viewer.entities.removeAll();
+    // 1. DÜZELTME: Sadece bizim eklediğimiz (customData barındıran) entity'leri temizle.
+    // Bu sayede harita her yenilendiğinde "removeAll()" yapıp 3D binaları veya diğer statik nesneleri bozmazsın.
+    const entitiesToRemove = viewer.entities.values.filter(e => e.customData);
+    entitiesToRemove.forEach(e => viewer.entities.remove(e));
 
     // ── 1. HATTSAL VERİLER (Yollar / Demiryolları / Görev Rotaları) ──
     const railPaths = customPaths.filter(p => p._isRailway);
     railPaths.forEach(rail => {
         const cesiumPositions = [];
         rail.path.forEach(coord => {
-            cesiumPositions.push(Cesium.Cartesian3.fromDegrees(coord[1], coord[0], 500)); // Harita zeminine yapışmaması için 500m yüksekte çiziyoruz
+            cesiumPositions.push(Cesium.Cartesian3.fromDegrees(coord[1], coord[0], 500));
         });
         
         viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, altitudeMeters),
-    point: {
-        pixelSize: pixelSize,
-        color: Cesium.Color.fromCssColorString(colorStr),
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 1.5,
-        // BU SATIR ÇOK ÖNEMLİ: 
-        // 0 metre ile 1 milyar metre arasında her zaman görünür ol
-        distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 1e9) 
-    },
-    customData: d
-});
+            polyline: {
+                positions: cesiumPositions,
+                width: 2.5,
+                material: Cesium.Color.fromCssColorString(rail.color || 'rgba(57,255,20,0.6)')
+            },
+            customData: { name: rail.name, _overlayType: 'railway' } // Silinmesi için customData ekledik
+        });
     });
 
     // ── 2. NOKTASAL VERİLER (Canlı Hava İzleri + Stratejik Tesisler + Askeri Alanlar) ──
@@ -659,61 +652,53 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
     const allDisplayPoints = [...flightPoints, ...customPoints];
 
     allDisplayPoints.forEach(d => {
-        let colorStr = '#00f2ff'; // Varsayılan Siber Mavi
+        let colorStr = '#00f2ff'; 
         let pixelSize = 6;
-        let altitudeMeters = (d.alt || 0) * 1000; // Havacılık verileri km bazında geldiğinden metreye çeviriyoruz
+        let altitudeMeters = (d.alt || 0) * 1000;
 
-        // C4ISR Rollerine Göre Grafiksel Özelleştirmeler
-        if (d._overlayType === 'airBase') { 
-            colorStr = '#ffd93d'; pixelSize = 10; altitudeMeters = 200; 
-        } else if (d._overlayType === 'naval') { 
-            colorStr = '#0096ff'; pixelSize = 10; altitudeMeters = 0; 
-        } else if (d._overlayType === 'conflict') { 
-            colorStr = d._color || '#ff3c5f'; pixelSize = 12; altitudeMeters = 800; 
-        } else if (d._overlayType === 'powerPlants') { 
-            colorStr = d._color || '#ff9800'; pixelSize = 7; altitudeMeters = 300; 
-        } else if (d._overlayType === 'petroChem') { 
-            colorStr = '#ff7043'; pixelSize = 8; altitudeMeters = 300; 
-        } else if (d._overlayType === 'waterResources') { 
-            colorStr = d._color || '#00f2ff'; pixelSize = 8; altitudeMeters = 0; 
-        } else if (d._overlayType === 'techCenters') { 
-            colorStr = '#39ff14'; pixelSize = 9; altitudeMeters = 400; 
-        } else if (d._overlayType === 'osint') { 
-            colorStr = d._color || '#00f2ff'; pixelSize = 9; altitudeMeters = 600;
-        } else if (d._isRadarPoint) {
-            // Radar Erken Uyarı veya Hava Savunma İstasyonları
+        // Stil ayarları
+        if (d._overlayType === 'airBase') { colorStr = '#ffd93d'; pixelSize = 10; altitudeMeters = 200; }
+        else if (d._overlayType === 'naval') { colorStr = '#0096ff'; pixelSize = 10; altitudeMeters = 0; }
+        else if (d._overlayType === 'conflict') { colorStr = d._color || '#ff3c5f'; pixelSize = 12; altitudeMeters = 800; }
+        else if (d._overlayType === 'powerPlants') { colorStr = d._color || '#ff9800'; pixelSize = 7; altitudeMeters = 300; }
+        else if (d._overlayType === 'petroChem') { colorStr = '#ff7043'; pixelSize = 8; altitudeMeters = 300; }
+        else if (d._overlayType === 'waterResources') { colorStr = d._color || '#00f2ff'; pixelSize = 8; altitudeMeters = 0; }
+        else if (d._overlayType === 'techCenters') { colorStr = '#39ff14'; pixelSize = 9; altitudeMeters = 400; }
+        else if (d._overlayType === 'osint') { colorStr = d._color || '#00f2ff'; pixelSize = 9; altitudeMeters = 600; }
+        else if (d._isRadarPoint) {
             colorStr = d.type === 'sam' ? '#ff3c5f' : (d.type === 'airborne' ? '#ffd93d' : '#00f2ff');
             pixelSize = 12; altitudeMeters = 1000;
 
-            // RADAR KAPSAMA ALANI: Cesium 3D Tehdit Kubbesi Entegrasyonu (Görsel Can damarı)
-            const radiusMeters = d.range_km * 1000;
+            // Radar Kubbesi (bunu da customData ile ekliyoruz ki temizlenebilsin)
             viewer.entities.add({
                 position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, 0),
                 ellipse: {
-                    semiMinorAxis: radiusMeters,
-                    semiMajorAxis: radiusMeters,
+                    semiMinorAxis: d.range_km * 1000,
+                    semiMajorAxis: d.range_km * 1000,
                     material: Cesium.Color.fromCssColorString(colorStr).withAlpha(0.12),
                     outline: true,
                     outlineColor: Cesium.Color.fromCssColorString(colorStr).withAlpha(0.4),
-                    height: 200 // Yeryüzünden biraz yukarıda şeffaf kubbe altlığı
-                }
+                    height: 200
+                },
+                customData: { _isRadarDome: true } 
             });
         } else {
-            // Canlı Hava İzleri (Askeri / Sivil Renk Ayrımı)
             colorStr = d.type === 'military' ? '#ff3c5f' : '#00f2ff';
             pixelSize = d.type === 'military' ? 8 : 6;
         }
 
-        // Taktiksel Veriyi Cesium Entity Olarak Sahneye Ekleme
+        // 2. DÜZELTME: Point tanımlaması
         viewer.entities.add({
             position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, altitudeMeters),
             point: {
                 pixelSize: pixelSize,
                 color: Cesium.Color.fromCssColorString(colorStr),
                 outlineColor: Cesium.Color.BLACK,
-                outlineWidth: 1.5
+                outlineWidth: 1.5,
+                // Yaklaşınca kaybolmayı önleyen zırh
+                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 1e9) 
             },
-            customData: d // Tıklama yakalayıcının detayları okuyabilmesi için ham veriyi saklıyoruz
+            customData: d // Bu nesnenin temizlenebilir olmasını sağlar
         });
     });
 }
