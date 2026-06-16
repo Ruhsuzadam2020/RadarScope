@@ -623,14 +623,18 @@ async function renderOverlays() {
 
     renderGlobeWithOverlays(allCustomPoints, allPaths);
 }
-function renderGlobeWithOverlays(customPoints, customPaths) {
-    // 1. ADIM: Sadece bizim eklediğimiz dinamik taktiksel entity'leri temizle
-    const entitiesToRemove = viewer.entities.values.filter(e => e.customData);
-    entitiesToRemove.forEach(e => viewer.entities.remove(e));
+// Performans için statik Cesium nesnelerini fonksiyon dışında bir kez tanımlıyoruz (RAM dostu)
+const OPTIMIZED_DISPLAY_CONDITION = new Cesium.DistanceDisplayCondition(0.0, 100000000.0);
+const OPTIMIZED_SCALE = new NearFarScalar(1.0e2, 1.0, 1.0e7, 1.0);
 
-    // Kameranın objeleri ortadan ikiye bölmesini engellemek için lens hassasiyetini artır
+function renderGlobeWithOverlays(customPoints, customPaths) {
+    // KASMAYI ÖNLEYEN BİRİNCİ HAMLE: Tek tek entity silmek yerine toplu temizlik yapıyoruz
+    // Binalar primitive seviyesinde olduğu için entities.removeAll() artık güvenle kullanılabilir!
+    viewer.entities.removeAll();
+
+    // Kameranın yakın kesme hassasiyeti sabiti
     if (viewer.scene.camera.frustum && viewer.scene.camera.frustum.near) {
-        viewer.scene.camera.frustum.near = 0.1; // Kameraya 10cm yaklaşsa bile nesneyi kesme
+        viewer.scene.camera.frustum.near = 0.1;
     }
 
     // ── 1. HATTSAL VERİLER (Demiryolları) ──
@@ -638,7 +642,6 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
     railPaths.forEach(rail => {
         const cesiumPositions = [];
         rail.path.forEach(coord => {
-            // Çizgilerin araziye gömülmemesi için 1500m yukarıda kavis almasını sağlıyoruz
             cesiumPositions.push(Cesium.Cartesian3.fromDegrees(coord[1], coord[0], 1500));
         });
         
@@ -656,13 +659,14 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
     const flightPoints = STATE.layer ? applyDataFilter(STATE.liveFlights) : [];
     const allDisplayPoints = [...flightPoints, ...customPoints];
 
+    // KASMAYI ÖNLEYEN İKİNCİ HAMLE: Cesium'u döngü içinde yormamak için toplu işleme (Batching) geçiyoruz
+    viewer.entities.suspendEvents(); // Entity eklenirken harita renderını geçici olarak dondur
+
     allDisplayPoints.forEach(d => {
         let colorStr = '#00f2ff'; 
         let pixelSize = 6;
         let altitudeMeters = (d.alt || 0) * 1000;
 
-        // Overlay tiplerine göre stil ve ek güvenlik irtifaları
-        // Noktaların araziye (dağlara/tepelere) gömülmesini engellemek için taban yükseklikler artırıldı
         if (d._overlayType === 'airBase') { colorStr = '#ffd93d'; pixelSize = 10; altitudeMeters = 800; }
         else if (d._overlayType === 'naval') { colorStr = '#0096ff'; pixelSize = 10; altitudeMeters = 300; }
         else if (d._overlayType === 'conflict') { colorStr = d._color || '#ff3c5f'; pixelSize = 12; altitudeMeters = 1500; }
@@ -692,11 +696,9 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
             pixelSize = d.type === 'military' ? 8 : 6;
         }
 
-        // Eğer sivil/askeri uçak değilse ve baraj/santral gibi yeryüzü overlay'iyse, 
-        // Türkiye'nin ortalama yükseltisinde kaybolmaması için ek koruma payı (offset) ekliyoruz.
         const finalAltitude = (d.type === 'civilian' || d.type === 'military') ? altitudeMeters : altitudeMeters + 350;
 
-        // Cesium Entity Tanımlaması
+        // Optimize edilmiş Entity ekleme yapısı
         viewer.entities.add({
             position: Cesium.Cartesian3.fromDegrees(d.lng, d.lat, finalAltitude),
             point: {
@@ -704,18 +706,17 @@ function renderGlobeWithOverlays(customPoints, customPaths) {
                 color: Cesium.Color.fromCssColorString(colorStr),
                 outlineColor: Cesium.Color.BLACK,
                 outlineWidth: 1.5,
-                // ZIRH 1: Her zoom seviyesinde (0 metreden uzaya kadar) görünürlüğü zorla
-                distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0.0, 100000000.0),
-                // ZIRH 2: Kamera yaklaştıkça noktaların küçülüp kaybolmasını engelle, ekranda sabit boyutta tut
-                scaleByDistance: new Cesium.NearFarScalar(1.0e2, 1.0, 1.0e7, 1.0),
-                // ZIRH 3: Arazi derinlik testi açıkken nesnelerin yerin altında kalmasını önleyici rendering önceliği
-                disableDepthTestDistance: Number.POSITIVE_INFINITY
+                distanceDisplayCondition: OPTIMIZED_DISPLAY_CONDITION, // Önceden üretilen sabit nesne
+                scaleByDistance: OPTIMIZED_SCALE,                       // Önceden üretilen sabit nesne
+                // Peşimizden gelen "hayalet" noktaları engelleyen, performansı uçuran can damarı:
+                disableDepthTestDistance: 50000.0 // 50 km yakınlaşınca derinlik testini kapat, böylece ekrana yapışmazlar
             },
             customData: d
         });
     });
-}
 
+    viewer.entities.resumeEvents(); // Haritayı tek seferde render etmeye geri dön
+}
 const cesiumHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
 cesiumHandler.setInputAction(function(movement) {
