@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RADARSCOPE — GLOBAL TACTICAL AWARENESS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="geoint.js"></script>
+</head>
+<body>
+
+<div id="app-container">
+    <div id="globeViz"></div>
+
+    <div id="scanline-overlay"></div>
+
+    <div id="top-bar">
+        <div class="top-logo">
+            <span class="logo-radar">◉</span>
+            RADARSCOPE
+            <span class="logo-sub">GLOBAL TACTICAL AWARENESS SYSTEM v4.0</span>
+        </div>
+        <div class="top-status">
+            <span class="status-dot active"></span> LIVE FEED
+            <span id="active-count" style="margin-left:16px;">0 TRACKS</span>
+            <span id="cyber-status" style="margin-left:16px; color:#ff9800; display:none;">
+                ⚡ <span id="cyber-count">0</span> CYBER ATTACKS/MIN
+            </span>
+        </div>
+        <div class="top-clock">
+            <div>UTC <span id="utc-clock">00:00:00</span></div>
+            <div id="cursor-info">LAT: <span id="mouse-lat">0.00</span> | LNG: <span id="mouse-lng">0.00</span></div>
+        </div>
+    </div>
+
+    <div id="left-sidebar" class="panel">
+        <div class="panel-header">
+            <span class="ph-icon">▣</span>
+            COMMAND RAIL
+            <span id="layer-indicator" class="layer-badge">—</span>
+        </div>
+
+        <div class="layer-selection" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 0 10px;">
+            <button class="layer-btn" data-layer="civilian" onclick="switchLayer('civilian', this)">
+                <span class="lb-icon">✈</span> AIR
+            </button>
+            <button class="layer-btn" data-layer="military" onclick="switchLayer('military', this)">
+                <span class="lb-icon">🎖</span> MIL
+            </button>
+            <button class="ov-btn" id="ovOsint" onclick="toggleOverlay('osint', this)">
+                <span>👁️</span> OSINT
+            </button>
+            <button class="ov-btn" id="ovConflictBtn" onclick="openConflictPanel()" style="border-color: rgba(255,60,95,0.4); color: #ff3c5f;">
+                <span>⚔</span> ANLZ
+            </button>
+            <button class="ov-btn" id="ovGeoint" onclick="toggleGeointPanel()" style="border-color: rgba(57,255,20,0.4); color: #39ff14;">
+                <span>🛰️</span> GEO
+            </button>
+        </div>
+
+        <div class="overlay-section">
+            <div class="overlay-title">OVERLAYS</div>
+            <div class="overlay-grid">
+                <button class="ov-btn" id="ovAirBase" onclick="toggleOverlay('airBase', this)">
+                    <span>✈</span> HAVUZ
+                </button>
+                <button class="ov-btn" id="ovNaval" onclick="toggleOverlay('naval', this)">
+                    <span>⚓</span> DENİZ
+                </button>
+                <button class="ov-btn" id="ovRailway" onclick="toggleOverlay('railway', this)">
+                    <span>🛤</span> DEMİRYOL
+                </button>
+                <button class="ov-btn" id="ovCyber" onclick="toggleOverlay('cyber', this)">
+                    <span>⚡</span> SİBER
+                </button>
+                <button class="ov-btn" id="ovConflict" onclick="toggleOverlay('conflict', this)">
+                    <span>💥</span> ÇATIŞMA
+                </button>
+                <button class="ov-btn" id="ovPower" onclick="toggleOverlay('powerPlants', this)">
+                    <span>⚡</span> ENERJİ
+                </button>
+                <button class="ov-btn" id="ovWater" onclick="toggleOverlay('waterResources', this)">
+                    <span>💧</span> SU/BARAJ
+                </button>
+                <button class="ov-btn" id="ovPetro" onclick="toggleOverlay('petroChem', this)">
+                    <span>🛢️</span> PETROKİMYA
+                </button>
+                <button class="ov-btn" id="ovTech" onclick="toggleOverlay('techCenters', this)">
+                    <span>🔬</span> TEKNO MERKEZ
+                </button>
+            </div>
+
+            <div class="country-select-wrap" id="countrySelectWrap" style="display:none;">
+                <div class="cs-label">ÜLKE SEÇ</div>
+                <select id="countrySelect" onchange="onCountryChange(this.value)"></select>
+            </div>
+        </div>
+
+        <div class="list-header">
+            <span>CANLI İZLER</span>
+            <span id="list-count" style="color:var(--accent); font-size:10px;">0</span>
+        </div>
+        <div id="live-list" class="scroll-list">
+            <div class="list-item loading">
+                <div class="loading-pulse"></div>
+                Veri bekleniyor...
+            </div>
+        </div>
+    </div>
+
+    <div id="conflict-panel" class="panel" style="display:none;">
+        <div class="panel-header">
+            <span class="ph-icon">⚔</span> ÇATIŞMA PROVİZYON ANALİZİ
+            <button class="close-x" onclick="document.getElementById('conflict-panel').style.display='none'">✕</button>
+        </div>
+        <div class="settings-group">
+            <div class="sim-row">
+                <label>TARAF A — ÜLKE</label>
+                <select id="cp-country-a"></select>
+            </div>
+            <div class="sim-row">
+                <label>TARAF B — ÜLKE</label>
+                <select id="cp-country-b"></select>
+            </div>
+            <div class="sim-row">
+                <label>ÇATIŞMA SEKTÖRÜ</label>
+                <select id="cp-domain">
+                    <option value="air">Hava Muharebesi</option>
+                    <option value="naval">Deniz Muharebesi</option>
+                    <option value="ground">Kara Harekâtı</option>
+                    <option value="cyber">Siber Savaş</option>
+                    <option value="combined">Kombine Harekât</option>
+                </select>
+            </div>
+            <button class="action-btn full-btn" onclick="runConflictAnalysis()" style="background:rgba(255,60,95,0.08); border-color:rgba(255,60,95,0.5); color:var(--accent2);">
+                🤖 AI ANALİZİ BAŞLAT
+            </button>
+            <div id="conflict-results" class="conflict-results" style="display:none;"></div>
+        </div>
+    </div>
+
+    <div id="cyber-panel" class="panel" style="display:none;">
+        <div class="panel-header">
+            <span class="ph-icon">⚡</span> SİBER SAVAŞ İZLEME
+            <button class="close-x" onclick="document.getElementById('cyber-panel').style.display='none'; toggleOverlay('cyber', document.getElementById('ovCyber'))">✕</button>
+        </div>
+        <div class="settings-group">
+            <div style="margin-bottom:8px; padding:5px 8px; background:rgba(0,242,255,0.04); border:1px solid rgba(0,242,255,0.15); border-radius:3px;">
+                <div id="cyber-source-badge" style="font-family:var(--font-mono); font-size:9px; color:#ff9800; letter-spacing:1px;">🔄 CLOUDFLARE RADAR BAĞLANIYOR...</div>
+            </div>
+            <div class="cyber-stats-grid" id="cyber-stats-grid"></div>
+            <div class="list-header" style="padding:4px 0; margin-top:4px;">
+                <span>CANLI SALDIRILAR</span>
+                <span id="cyber-attack-count" style="color:#ff9800; font-size:10px;">0</span>
+            </div>
+            <div id="cyber-attack-list" style="max-height:200px; overflow-y:auto; font-family:var(--font-mono); font-size:9px;"></div>
+        </div>
+    </div>
+
+    <div id="detail-panel" class="panel" style="display:none;">
+        <div class="panel-header" style="font-size:11px;">
+            <span class="ph-icon">📋</span> UNIT DETAILS
+            <button class="close-x" onclick="closeDetail()">✕</button>
+        </div>
+        <div class="settings-group detail-content">
+            <div id="detail-callsign" class="detail-callsign"></div>
+            <div class="detail-grid" id="detail-grid"></div>
+        </div>
+    </div>
+
+    <div id="bottom-bar">
+        <span class="bb-item">◉ <span id="bb-layer">SELECT LAYER</span></span>
+        <span class="bb-item">UTC <span id="utc-clock2">00:00:00</span></span>
+        <span class="bb-item">TRACKS: <span id="bb-count">0</span></span>
+        <span class="bb-item">REFRESH: <span id="bb-next">15s</span></span>
+    </div>
+</div>
+
+<script src="data_military_bases.js"></script>
+<script src="data_strategic_assets.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
