@@ -41,6 +41,8 @@ const STATE = {
 // ── VERİ ÇEKME — Sadece HTTP Polling (Render WSS desteklemiyor) ──────
 // Socket.IO / WebSocket Render'da çalışmıyor — doğrudan REST API polling kullanıyoruz
 let osintPoints = [];
+let powerPlantPoints = [];    // BURAYI EKLE - Enerji santralleri için kayıp dizi
+let waterResourcePoints = [];
 let httpPollInterval = null;
 Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlMmY5Y2VlYy03NTZlLTQ1NjgtYWE3Yi1jMTAzYjE4MjFlYTYiLCJpZCI6NDQ0OTUyLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODE1NzEwNzh9.jLs7q4wvNvpVrHBKv31qSVFZgmDg3LqwtbvpurkY3BU';
 
