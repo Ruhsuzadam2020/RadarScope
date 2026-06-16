@@ -623,9 +623,9 @@ async function renderOverlays() {
 
     renderGlobeWithOverlays(allCustomPoints, allPaths);
 }
-// Performans için statik Cesium nesnelerini fonksiyon dışında bir kez tanımlıyoruz (RAM dostu)
+// Performans için statik Cesium nesnelerini fonksiyon dışında bir kez tanımlıyoruz (Cesium eklendi)
 const OPTIMIZED_DISPLAY_CONDITION = new Cesium.DistanceDisplayCondition(0.0, 100000000.0);
-const OPTIMIZED_SCALE = new NearFarScalar(1.0e2, 1.0, 1.0e7, 1.0);
+const OPTIMIZED_SCALE = new Cesium.NearFarScalar(1.0e2, 1.0, 1.0e7, 1.0);
 
 function renderGlobeWithOverlays(customPoints, customPaths) {
     // KASMAYI ÖNLEYEN BİRİNCİ HAMLE: Tek tek entity silmek yerine toplu temizlik yapıyoruz
@@ -1443,83 +1443,56 @@ async function fetchOsintData() {
 
     renderOverlays();
 }
-let powerPlantPoints = []; // Veriyi hafızada tutacağımız dizi
-
 async function fetchPowerPlantsData() {
     if (powerPlantPoints.length > 0) {
-        renderOverlays(); // Zaten yüklüyse tekrar API'yi yormadan direkt çiz
+        renderOverlays(); 
         return;
     }
-
     try {
         console.log("⚡ Enerji veritabanı yükleniyor...");
         const res = await fetch('/api/infra/power-plants');
         const json = await res.json();
 
         if (json.success && json.data) {
-            // Güvenlik filtresi: Sadece geçerli koordinatlara sahip olanları al
+            // let KULLANMADAN doğrudan global diziyi dolduruyoruz
             powerPlantPoints = json.data
                 .filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng))
                 .map(p => {
-                    let color = '#ff9800'; // Varsayılan Turuncu
+                    let color = '#ff9800';
                     if (p.type) {
-                        if (p.type.includes('nuclear')) color = '#39ff14'; // Nükleer
-                        else if (p.type.includes('hydro')) color = '#00f2ff'; // Hidro
-                        else if (p.type.includes('coal') || p.type.includes('gas')) color = '#ff3c5f'; // Fosil
+                        if (p.type.includes('nuclear')) color = '#39ff14';
+                        else if (p.type.includes('hydro')) color = '#00f2ff';
+                        else if (p.type.includes('coal') || p.type.includes('gas')) color = '#ff3c5f';
                     }
-                    
-                    return {
-                        ...p,
-                        _overlayType: 'powerPlants',
-                        _color: color,
-                        _radius: 0.25,
-                        _alt: 0.015
-                    };
+                    return { ...p, _overlayType: 'powerPlants', _color: color, _radius: 0.25, _alt: 0.015 };
                 });
-                
-            console.log(`✅ ${powerPlantPoints.length} STRATEJİK santral filtrelendi ve haritaya eklendi.`);
             renderOverlays(); 
         }
-    } catch (e) {
-        console.error("Enerji verisi çekilemedi:", e);
-    }
+    } catch (e) { console.error("Enerji verisi çekilemedi:", e); }
 }
-let waterResourcePoints = []; // Baraj verilerini RAM'de tutacak global dizi
 
 async function fetchWaterResourcesData() {
     if (waterResourcePoints.length > 0) {
         renderOverlays();
         return;
     }
-
     try {
         console.log("💧 Su kaynakları veritabanı yükleniyor...");
         const res = await fetch('/api/infra/water-resources');
         const json = await res.json();
 
         if (json.success && json.data) {
+            // let KULLANMADAN doğrudan global diziyi dolduruyoruz
             waterResourcePoints = json.data
                 .filter(p => p.lat != null && p.lng != null && !isNaN(p.lat) && !isNaN(p.lng))
                 .map(p => {
                     const cap = parseFloat(p.raw_capacity) || 50;
-                    // Hacme göre karekök ölçeklendirmesi (Math.sqrt koruması)
                     const dynamicRadius = 0.15 + (Math.sqrt(cap) * 0.004);
-
-                    return {
-                        ...p,
-                        _overlayType: 'waterResources',
-                        _color: '#00f2ff', // Parlak su mavisi
-                        _radius: Math.min(dynamicRadius, 1.3),
-                        _alt: 0.01 + (dynamicRadius * 0.008)
-                    };
+                    return { ...p, _overlayType: 'waterResources', _color: '#00f2ff', _radius: Math.min(dynamicRadius, 1.3), _alt: 0.01 + (dynamicRadius * 0.008) };
                 });
-                
-            console.log(`✅ ${waterResourcePoints.length} STRATEJİK su kaynağı/baraj haritaya hazır.`);
             renderOverlays();
         }
-    } catch (e) {
-        console.error("Su kaynakları verisi çekilemedi:", e);
-    }
+    } catch (e) { console.error("Su kaynakları verisi çekilemedi:", e); }
 }
 function showOsintDetail(d) {
     document.getElementById('detail-callsign').innerText = `👁️ OSINT: ${d.name}`;
