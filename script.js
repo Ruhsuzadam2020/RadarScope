@@ -105,14 +105,20 @@ viewer.camera.setView({
     }
 });
 
-// Kameranın dünyaya çok yaklaşmasını engellemek için sınırlama (Opsiyonel)
-viewer.scene.screenSpaceCameraController.minimumZoomDistance = 200000;
+// 1. Kamera yakınlaşma sınırını 1 metreye çekerek binaların içine/dibine girmeyi sağla
+viewer.scene.screenSpaceCameraController.minimumZoomDistance = 1.0; 
+
+// 2. Arazinin derinlik testini aç (Binaların yerle çakışmaması için kritik)
+viewer.scene.globe.depthTestAgainstTerrain = true;
+
 (async function init() {
     try {
         console.log("🏙️ 3D Şehir binaları haritaya yükleniyor...");
-        // Dünyadaki tüm şehir binalarını 3D olarak haritaya ekle:
+        
+        // 3D Binaları yükle
         const buildingTileset = await Cesium.createOsmBuildingsAsync();
         viewer.scene.primitives.add(buildingTileset);
+        
         console.log("🏙️ 3D Binalar başarıyla entegre edildi.");
     } catch (error) {
         console.error("3D Binalar yüklenirken hata oluştu:", error);
@@ -122,6 +128,7 @@ viewer.scene.screenSpaceCameraController.minimumZoomDistance = 200000;
     renderOverlays();
     startRefreshTimer();
     
+    // Veri güncelleme döngüsü
     setInterval(() => {
         if (STATE.layer && STATE.layer !== 'civilian') updateData();
     }, 15000);
